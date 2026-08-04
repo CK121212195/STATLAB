@@ -3,18 +3,25 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>STATLAB — ブラウザ完結の統計分析ダッシュボード</title>
-<meta name="description" content="CSV かキーボード入力だけで、記述統計・各種検定・分散分析・回帰・ロジスティック回帰・決定木・時系列・多層パーセプトロンまで実行できる統計分析ダッシュボード。結果の読み方の解説つき。">
-<!-- Google tag (gtag.js) -->
-<script async src="https://www.googletagmanager.com/gtag/js?id=G-VL4D1215KN"></script>
-<script>
-  window.dataLayer = window.dataLayer || [];
-  function gtag(){dataLayer.push(arguments);}
-  gtag('js', new Date());
+<title>STATLAB｜ブラウザだけで動く統計分析ダッシュボード</title>
+<meta name="description" content="CSV を読み込むか数値を貼り付けるだけで、記述統計・仮説検定・分散分析・回帰・ロジスティック回帰・ポアソン回帰・決定木・時系列・多層パーセプトロンまで実行。結果の読み方の解説と、初学者向けの手法診断ナビつき。データは外部に送信されません。">
+<meta name="author" content="Mini statistic">
+<meta name="theme-color" content="#070a14">
+<link rel="canonical" href="https://ck121212195.github.io/STATLAB/">
 
-  gtag('config', 'G-VL4D1215KN');
-</script>
-  
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="STATLAB 統計分析ダッシュボード">
+<meta property="og:title" content="STATLAB｜ブラウザだけで動く統計分析ダッシュボード">
+<meta property="og:description" content="記述統計から仮説検定・分散分析・回帰・決定木・時系列・ディープラーニングまでブラウザ内で完結。結果の読み方の解説と手法診断ナビつき。データは外部に送信されません。">
+<meta property="og:url" content="https://ck121212195.github.io/STATLAB/">
+<meta property="og:image" content="https://ck121212195.github.io/STATLAB/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:locale" content="ja_JP">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="STATLAB｜ブラウザだけで動く統計分析ダッシュボード">
+<meta name="twitter:description" content="記述統計から仮説検定・分散分析・回帰・決定木・時系列・ディープラーニングまでブラウザ内で完結。結果の読み方の解説と手法診断ナビつき。">
+<meta name="twitter:image" content="https://ck121212195.github.io/STATLAB/og-image.png">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23070a14'/%3E%3Ccircle cx='16' cy='16' r='11' fill='none' stroke='%23440154' stroke-width='1.6'/%3E%3Ccircle cx='16' cy='16' r='8' fill='none' stroke='%232a788e' stroke-width='1.6'/%3E%3Ccircle cx='16' cy='16' r='5' fill='none' stroke='%2322a884' stroke-width='1.6'/%3E%3Ccircle cx='16' cy='16' r='2.2' fill='%23fde725'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -34,6 +41,10 @@
     <p class="rail-sub">ブラウザ内で完結。データは<br>どこにも送信されません。</p>
     <button class="btn ghost railToggle" id="railToggle">メニュー</button>
 
+    <div class="nav-group">
+      <span>はじめに</span>
+      <button class="nav-item" data-sect="navi">やりたいことから探す</button>
+    </div>
     <div class="nav-group">
       <span>データ</span>
       <button class="nav-item" data-sect="data" aria-current="true">データを読み込む</button>
@@ -62,7 +73,7 @@
     </div>
     <div class="nav-group">
       <span>ガイド</span>
-      <button class="nav-item" data-sect="guide">手法の選び方</button>
+      <button class="nav-item" data-sect="guide">統計ハンドブック</button>
     </div>
   </nav>
 
@@ -256,6 +267,8 @@
               <option value="kw">Kruskal–Wallis 検定（ノンパラ）</option>
               <option value="mw">Mann–Whitney U 検定（2群・ノンパラ）</option>
               <option value="wil">Wilcoxon 符号付き順位検定（対応あり）</option>
+              <option value="rm">反復測定分散分析（対応あり・3条件以上）</option>
+              <option value="friedman">Friedman 検定（対応あり・ノンパラ）</option>
             </select>
           </div>
           <div class="field"><label>目的変数（数値）</label><select id="a_y"></select></div>
@@ -263,6 +276,7 @@
         </div>
         <div class="grid g3">
           <div class="field" id="a_f2wrap"><label>要因 B（二元配置のみ）</label><select id="a_f2"></select></div>
+          <div class="field" id="a_wide" style="display:none"><label>条件の列（対応あり・複数選択）</label><select id="a_cols" multiple></select></div>
           <div class="field"><label>多重比較の補正</label><select id="a_ph"><option value="holm">Holm（推奨）</option><option value="bonferroni">Bonferroni</option></select></div>
           <div class="field"><label>有意水準 α</label><select id="a_alpha"><option value="0.05">0.05</option><option value="0.01">0.01</option><option value="0.1">0.10</option></select></div>
         </div>
@@ -327,6 +341,7 @@
               <option value="indep">独立性の検定（クロス集計）</option>
               <option value="gof">適合度検定</option>
               <option value="manual">度数を直接入力（クロス表）</option>
+              <option value="mcnemar">McNemar 検定（対応のある2値）</option>
             </select>
           </div>
           <div class="field"><label>行の変数</label><select id="c_r"></select></div>
@@ -335,6 +350,10 @@
         <div class="field" id="c_manwrap" style="display:none">
           <label>度数表（行を改行、列をカンマで区切る）</label>
           <textarea id="c_man" placeholder="30, 20&#10;15, 35"></textarea>
+        </div>
+        <div class="grid g2" id="c_mcwrap" style="display:none">
+          <div class="field"><label>不一致ペア b（1回目○ → 2回目×）</label><input type="number" id="c_b" value="21" min="0"></div>
+          <div class="field"><label>不一致ペア c（1回目× → 2回目○）</label><input type="number" id="c_c2" value="9" min="0"></div>
         </div>
         <div class="field" id="c_expwrap" style="display:none">
           <label>期待比率（適合度検定・カンマ区切り／省略時は均等）</label>
@@ -379,8 +398,11 @@
         </div>
         <div class="grid g3">
           <div class="field"><label>信頼水準</label><select id="g_conf"><option value="0.95">95%</option><option value="0.99">99%</option><option value="0.9">90%</option></select></div>
-          <div class="field"><label>目的変数の変換</label><select id="g_tr"><option value="none">なし</option><option value="log">自然対数</option><option value="sqrt">平方根</option></select></div>
+          <div class="field"><label>モデル</label><select id="g_model"><option value="ols">線形回帰（最小二乗法）</option><option value="poisson">ポアソン回帰（対数リンク・計数データ）</option></select></div>
           <div class="field"><label>予測したい x の値（カンマ区切り）</label><input type="text" id="g_pred" placeholder="例：3.5, 12"></div>
+        </div>
+        <div class="grid g3">
+          <div class="field"><label>目的変数の変換（線形回帰のみ）</label><select id="g_tr"><option value="none">なし</option><option value="log">自然対数</option><option value="sqrt">平方根</option></select></div>
         </div>
         <div class="btnrow"><button class="btn" id="g_run">回帰を実行</button></div>
       </div>
@@ -424,11 +446,12 @@
           <div class="field"><label>葉の最小サンプル数</label><input type="number" id="dt_leaf" value="5" min="1"></div>
           <div class="field"><label>検証データの割合</label><input type="number" id="dt_test" value="0.25" step="0.05" min="0.1" max="0.5"></div>
         </div>
-        <div class="btnrow"><button class="btn" id="dt_run">決定木を作る</button><button class="btn ghost" id="rf_run">ランダムフォレストも実行（100本）</button></div>
+        <div class="btnrow"><button class="btn" id="dt_run">決定木を作る</button><button class="btn ghost" id="rf_run">ランダムフォレストも実行（100本）</button><button class="btn ghost" id="pi_run">並べ替え重要度と部分依存を計算</button></div>
       </div>
       <div class="panel"><h3>木の構造</h3><div id="dt_tree" class="treebox"></div></div>
       <div class="panel"><h3>精度と変数重要度</h3><div class="grid g2"><div id="dt_out"></div><div id="dt_imp" class="plot"></div></div></div>
       <div class="panel"><h3>決定境界（説明変数を2つ選んだ場合）</h3><div id="dt_bound" class="plot"></div></div>
+      <div class="panel"><h3>並べ替え重要度と部分依存プロット（PDP）</h3><p class="hint">重要度は「どれだけ効いているか」、部分依存は「どちら向きに効いているか」を示します。</p><div class="grid g2"><div id="dt_perm" class="plot"></div><div id="dt_pdp" class="plot"></div></div></div>
       <div class="panel"><h3>結果の読み方</h3><div id="dt_advice" class="advice"></div></div>
     </section>
 
@@ -519,36 +542,33 @@
       <div class="panel"><h3>結果の読み方</h3><div id="n_advice" class="advice"></div></div>
     </section>
 
-    <!-- ========== ガイド ========== -->
-    <section class="sect" id="sect-guide">
+    <!-- ========== 診断ナビ ========== -->
+    <section class="sect" id="sect-navi">
       <div class="panel">
-        <h3>目的から手法を選ぶ</h3>
-        <div class="tbl-wrap"><table>
-          <thead><tr><th>知りたいこと</th><th>データの形</th><th>使う手法</th><th>前提</th></tr></thead>
-          <tbody>
-            <tr><td>母平均がある値と違うか</td><td>数値 1 群</td><td>1標本 t 検定</td><td>正規性（n≥30 なら緩和）</td></tr>
-            <tr><td>2 群の平均が違うか</td><td>数値 2 群</td><td>Welch の t 検定</td><td>各群の正規性</td></tr>
-            <tr><td>同じ対象の前後で違うか</td><td>対応のある 2 列</td><td>対応のある t 検定</td><td>差の正規性</td></tr>
-            <tr><td>3 群以上の平均が違うか</td><td>数値＋カテゴリ</td><td>一元配置分散分析＋多重比較</td><td>正規性・等分散性</td></tr>
-            <tr><td>正規性が崩れている</td><td>数値＋カテゴリ</td><td>Mann–Whitney / Kruskal–Wallis</td><td>分布形の相似</td></tr>
-            <tr><td>2 つの要因の効果と交互作用</td><td>数値＋カテゴリ 2 つ</td><td>二元配置分散分析</td><td>正規性・等分散性</td></tr>
-            <tr><td>比率が想定と違うか</td><td>成功数と試行数</td><td>母比率の検定 / 二項検定</td><td>np≥5 か正確検定</td></tr>
-            <tr><td>ばらつきが基準と違うか</td><td>数値 1〜2 群</td><td>カイ二乗検定 / F 検定</td><td>正規性に強く依存</td></tr>
-            <tr><td>2 つのカテゴリに関連があるか</td><td>クロス集計</td><td>カイ二乗独立性検定 / Fisher</td><td>期待度数 ≥ 5</td></tr>
-            <tr><td>2 変数が一緒に動くか</td><td>数値 2 変数</td><td>相関分析</td><td>直線関係（Pearson）</td></tr>
-            <tr><td>数値を予測・要因を測る</td><td>数値 y ＋ 説明変数</td><td>重回帰分析</td><td>線形性・独立性・等分散・正規性</td></tr>
-            <tr><td>起こる／起こらないを予測</td><td>2 値 y ＋ 説明変数</td><td>ロジスティック回帰</td><td>ロジットの線形性</td></tr>
-            <tr><td>解釈しやすいルールが欲しい</td><td>y ＋ 説明変数</td><td>決定木・ランダムフォレスト</td><td>特になし（過学習に注意）</td></tr>
-            <tr><td>将来の値を予測したい</td><td>時系列</td><td>指数平滑 / AR / 加法モデル</td><td>定常性または明示的なトレンド季節</td></tr>
-            <tr><td>複雑な非線形関係を捉えたい</td><td>数値多変量</td><td>多層パーセプトロン</td><td>十分なデータ量</td></tr>
-          </tbody>
-        </table></div>
+        <h3>まず 3 ステップ</h3>
+        <div id="navi_steps"></div>
       </div>
       <div class="panel">
-        <h3>この道具の限界について</h3>
-        <div class="advice" id="guide_advice"></div>
+        <h3>やりたいことから手法を診断する</h3>
+        <p class="hint">質問に答えていくと、使う手法・STATLAB のどの画面を開くか・結果のどこを見るかまで案内します。統計の用語を知らなくても進めます。</p>
+        <div id="navi_wizard"></div>
+      </div>
+      <div class="panel">
+        <h3>目的別ショートカット</h3>
+        <div id="navi_cards"></div>
       </div>
     </section>
+
+    <!-- ========== 統計ハンドブック ========== -->
+    <section class="sect" id="sect-guide">
+      <div class="panel">
+        <h3>統計ハンドブック</h3>
+        <p class="hint">この道具を使ううえで必要な考え方を、教科書としてまとめています。統計検定 3〜2 級の範囲を中心に、実務で迷いやすい点まで扱います。</p>
+        <div class="chipset" id="guide_tabs"></div>
+      </div>
+      <div id="guide_body"></div>
+    </section>
+
   </main>
 </div>
 
@@ -556,5 +576,6 @@
 <script src="assets/models.js"></script>
 <script src="assets/advice.js"></script>
 <script src="assets/ui.js"></script>
+<script src="assets/guide.js"></script>
 </body>
 </html>
