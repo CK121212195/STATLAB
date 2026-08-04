@@ -542,6 +542,83 @@
     return { test: 'Kruskal–Wallis 検定', H: Hc, df, p: 1 - chisquare.cdf(Hc, df), groups: info, epsilon2: (Hc - df + 1) / ((N * N - 1) / (N + 1)) };
   }
 
+
+  /* ---------- 対応のあるデータ向けの検定（追加） ---------- */
+  // McNemar 検定：b = 「1回目○・2回目×」、c = 「1回目×・2回目○」の不一致ペア数
+  function mcnemarTest(b, c, correct = true) {
+    const n = b + c;
+    const chi = n === 0 ? 0 : (correct ? (Math.abs(b - c) - 1) ** 2 : (b - c) ** 2) / n;
+    // 正確版（二項検定 p=0.5）
+    let pExact = 0;
+    for (let i = 0; i <= n; i++) { const pr = binomial.pmf(i, n, 0.5); if (pr <= binomial.pmf(Math.min(b, c), n, 0.5) * (1 + 1e-9)) pExact += pr; }
+    return {
+      test: 'McNemar 検定（対応のある2値データ）', b, c, discordant: n,
+      statistic: Math.max(0, chi), df: 1, p: 1 - chisquare.cdf(Math.max(0, chi), 1),
+      pExact: Math.min(1, pExact), correct,
+      oddsRatio: c === 0 ? Infinity : b / c
+    };
+  }
+  // Friedman 検定：rows = 被験者、cols = 条件
+  function friedmanTest(rows, labels) {
+    const n = rows.length, k = rows[0].length;
+    const R = new Array(k).fill(0);
+    let tieCorr = 0;
+    rows.forEach(r => {
+      const rk = ranks(r);
+      rk.forEach((v, j) => R[j] += v);
+      tieGroups(r).forEach(t => tieCorr += t ** 3 - t);
+    });
+    let chi = 12 / (n * k * (k + 1)) * sum(R.map(v => v * v)) - 3 * n * (k + 1);
+    const denom = 1 - tieCorr / (n * (k ** 3 - k));
+    if (denom > 0) chi = chi / denom;
+    const W = chi / (n * (k - 1)); // Kendall の一致係数
+    return {
+      test: 'Friedman 検定（対応のある3群以上・ノンパラメトリック）',
+      statistic: chi, df: k - 1, p: 1 - chisquare.cdf(chi, k - 1),
+      n, k, meanRanks: R.map(v => v / n), kendallW: W,
+      labels: labels || R.map((_, j) => `条件${j + 1}`)
+    };
+  }
+  // 一元配置・反復測定分散分析（被験者内計画）
+  function rmAnova(rows, labels) {
+    const n = rows.length, k = rows[0].length;
+    const grand = mean(rows.flat());
+    const subjMean = rows.map(r => mean(r));
+    const condMean = [];
+    for (let j = 0; j < k; j++) condMean.push(mean(rows.map(r => r[j])));
+    let ssT = 0; rows.forEach(r => r.forEach(v => ssT += (v - grand) ** 2));
+    const ssSubj = k * sum(subjMean.map(m => (m - grand) ** 2));
+    const ssCond = n * sum(condMean.map(m => (m - grand) ** 2));
+    const ssErr = ssT - ssSubj - ssCond;
+    const dfC = k - 1, dfE = (n - 1) * (k - 1);
+    const msC = ssCond / dfC, msE = ssErr / dfE;
+    const F = msC / msE;
+    // Greenhouse–Geisser の ε（球面性の逸脱補正）
+    const S = [];
+    for (let i = 0; i < k; i++) { S.push([]); for (let j = 0; j < k; j++) {
+      const a = rows.map(r => r[i]), b = rows.map(r => r[j]);
+      const ma = mean(a), mb = mean(b);
+      S[i][j] = sum(a.map((v, t) => (v - ma) * (b[t] - mb))) / (n - 1);
+    } }
+    const sBar = mean(S.flat());
+    const rowBar = S.map(r => mean(r));
+    const diagBar = mean(S.map((r, i) => r[i]));
+    const num = k * k * (diagBar - sBar) ** 2;
+    const den = (k - 1) * (sum(S.flat().map(v => v * v)) - 2 * k * sum(rowBar.map(v => v * v)) + k * k * sBar * sBar);
+    let eps = den > 0 ? num / den : 1;
+    eps = Math.max(1 / (k - 1), Math.min(1, eps));
+    const hf = Math.min(1, (n * (k - 1) * eps - 2) / ((k - 1) * ((n - 1) - (k - 1) * eps)));
+    return {
+      test: '反復測定分散分析（被験者内一元配置）',
+      n, k, labels: labels || condMean.map((_, j) => `条件${j + 1}`),
+      condMean, ssCond, ssSubj, ssErr, ssT, dfC, dfE, msC, msE, F,
+      p: 1 - centralF.cdf(F, dfC, dfE),
+      etaPartial: ssCond / (ssCond + ssErr),
+      ggEpsilon: eps, hfEpsilon: Math.max(eps, isFinite(hf) ? hf : eps),
+      pGG: 1 - centralF.cdf(F, dfC * eps, dfE * eps)
+    };
+  }
+
   /* ---------- 適合度・独立性 ---------- */
   function chiSquareGOF(observed, expected) {
     const n = sum(observed);
@@ -769,7 +846,7 @@
     propTestOne, propTestTwo, varTestOne, fTestVar, leveneTest, bartlettTest,
     anovaOneWay, anovaTwoWay, postHoc,
     mannWhitney, wilcoxonSigned, kruskalWallis,
-    chiSquareGOF, chiSquareIndep, fisherExact2x2,
+    chiSquareGOF, chiSquareIndep, fisherExact2x2, mcnemarTest, friedmanTest, rmAnova,
     shapiroWilk, jarqueBera, andersonDarling, ksTestNormal,
     pearson, corTest, corMatrix, partialCorr,
     matMul, transpose, inverse, olsSolve, powerTTest2, pFromT, pFromZ

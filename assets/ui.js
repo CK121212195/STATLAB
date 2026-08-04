@@ -150,7 +150,7 @@
   const SEL = {
     all: ['ex_g', 'a_f1', 'a_f2', 'c_r', 'c_c', 'l_y', 'dt_y', 'n_y', 'ts_t', 's_date', 't_split'],
     num: ['ex_y', 'ex_x', 'd_overlay', 't_v1', 't_v2', 'a_y', 'v_v1', 'v_v2', 'g_y', 'ts_y', 's_close'],
-    numMulti: ['r_vars', 'r_ctrl', 'g_x', 'l_x', 'dt_x', 'n_x']
+    numMulti: ['r_vars', 'r_ctrl', 'g_x', 'l_x', 'dt_x', 'n_x', 'a_cols']
   };
   function fill(id, names, opt) {
     const s = $(id); if (!s) return;
@@ -301,7 +301,8 @@
     ts: ['TIME SERIES', '時系列解析', '定常性の確認、成分分解、コレログラム、そして予測まで。'],
     stock: ['FINANCE', '株価分析', 'リターンとリスクの記述統計、テクニカル指標、参考予測。投資助言ではありません。'],
     mlp: ['DEEP LEARNING', '多層パーセプトロン', 'ブラウザ内（TensorFlow.js）でニューラルネットを学習させます。'],
-    guide: ['GUIDE', '手法の選び方', '目的とデータの形から、使うべき手法を引くための対応表です。']
+    navi: ['START HERE', 'やりたいことから探す', '統計の用語がわからなくても大丈夫です。目的から順に絞り込んで、使う手法と見るべき数字まで案内します。'],
+    guide: ['HANDBOOK', '統計ハンドブック', '確率分布・検定・回帰・機械学習・時系列を、図と表で通して読める教科書パートです。']
   };
   function go(name) {
     els('.sect').forEach(s => s.classList.toggle('on', s.id === 'sect-' + name));
@@ -622,13 +623,22 @@
   /* ============================================================
      分散分析
      ============================================================ */
-  $('a_kind').addEventListener('change', () => { $('a_f2wrap').style.display = $('a_kind').value === 'two' ? '' : 'none'; });
+  function syncAnova() {
+    const k = $('a_kind').value;
+    const wide = (k === 'rm' || k === 'friedman');
+    $('a_f2wrap').style.display = k === 'two' ? '' : 'none';
+    $('a_wide').style.display = wide ? '' : 'none';
+    $('a_y').parentElement.style.display = wide ? 'none' : '';
+    $('a_f1').parentElement.style.display = wide ? 'none' : '';
+  }
+  $('a_kind').addEventListener('change', syncAnova); syncAnova();
   $('a_run').addEventListener('click', () => {
     if (!need()) return;
     const kind = $('a_kind').value, alpha = +$('a_alpha').value;
     const yN = $('a_y').value, f1 = $('a_f1').value, f2 = $('a_f2').value;
-    if (!yN) { alert('目的変数を選んでください。'); return; }
     clearPlot('a_plot');
+    if (kind === 'rm' || kind === 'friedman') { runWide(kind, alpha); return; }
+    if (!yN) { alert('目的変数を選んでください。'); return; }
     if (kind === 'two') {
       if (!f1 || !f2) { alert('要因 A と要因 B を選んでください。'); return; }
       const y = numOf(yN), a = strOf(f1), b = strOf(f2), rows = [];
@@ -707,6 +717,63 @@
     }
   });
 
+
+  // 対応のあるデータ（横持ち：条件ごとに列）
+  function runWide(kind, alpha) {
+    const names = [...$('a_cols').selectedOptions].map(o => o.value);
+    if (names.length < 3) { alert('条件の列を 3 つ以上選んでください（同じ対象を繰り返し測った列を並べます）。'); return; }
+    const P = pairsOf(names);
+    const rows = P.idx.map((_, i) => names.map((_, j) => P.cols[j][i]));
+    if (rows.length < 3) { alert('欠測を除いた完全なケースが少なすぎます。'); return; }
+    plot('a_plot', names.map((n, j) => ({
+      type: 'violin', y: rows.map(r => r[j]), name: n, box: { visible: true, width: .16 }, meanline: { visible: true },
+      points: 'all', jitter: .3, pointpos: 0, line: { color: VIRIDIS[j % 8], width: 2 }, fillcolor: VIRIDIS[j % 8] + '3d', marker: { size: 4, opacity: .5 }
+    })).concat(rows.slice(0, 60).map(r => ({
+      type: 'scatter', mode: 'lines', x: names, y: r, line: { color: 'rgba(232,238,251,.16)', width: 1 }, showlegend: false, hoverinfo: 'skip'
+    }))), { title: '条件ごとの分布（細線は同一対象の推移）', yaxis: { title: '値' } });
+
+    if (kind === 'rm') {
+      const r = S.rmAnova(rows, names);
+      $('a_out').innerHTML = tableHTML(['変動要因', '平方和 SS', '自由度', '平均平方 MS', 'F 値', 'p 値'], [
+        [td('条件（被験者内要因）'), td(fmt(r.ssCond, 3)), td(r.dfC), td(fmt(r.msC, 4)), td(fmt(r.F, 4)), pcell(r.p)],
+        [td('被験者（個人差）'), td(fmt(r.ssSubj, 3)), td(r.n - 1), td(fmt(r.ssSubj / (r.n - 1), 4)), td('—'), td('—')],
+        [td('残差'), td(fmt(r.ssErr, 3)), td(r.dfE), td(fmt(r.msE, 4)), td('—'), td('—')],
+        [td('全体'), td(fmt(r.ssT, 3)), td(r.n * r.k - 1), td('—'), td('—'), td('—')]
+      ]) + '<div style="margin-top:12px">' + statCards([
+        ['F 値', fmt(r.F, 4), 'hot'], ['p 値', r.p < 1e-4 ? r.p.toExponential(2) : r.p.toFixed(5), r.p < alpha ? 'pos' : ''],
+        ['偏 η²', fmt(r.etaPartial, 4)], ['対象数 n', r.n], ['条件数 k', r.k],
+        ['GG の ε', fmt(r.ggEpsilon, 4), r.ggEpsilon < .75 ? 'neg' : ''], ['GG 補正後 p', r.pGG < 1e-4 ? r.pGG.toExponential(2) : r.pGG.toFixed(5)]
+      ]) + '</div><div style="margin-top:14px">' + tableHTML(['条件', '平均'], names.map((n, j) => [td(n), td(fmt(r.condMean[j]))])) + '</div>';
+      const groups = names.map((_, j) => rows.map(x => x[j]));
+      const ph = S.postHoc(groups, names, $('a_ph').value, true, r.msE, r.dfE);
+      $('a_post').innerHTML = tableHTML(['対比較', '平均差', 't 値', '未調整 p', '調整済み p', '判定'],
+        ph.pairs.map(x => [td(`${x.a} − ${x.b}`), td(fmt(x.diff)), td(fmt(x.statistic, 4)), pcell(x.p), pcell(x.padj), td(x.padj < alpha ? '有意' : '—', x.padj < alpha ? 'sig' : 'nsig')]))
+        + '<p class="note">対応のあるデータなので、対比較も同一対象内の差で行っています。</p>';
+      renderAdvice('a_advice', [
+        { level: 'key', title: '反復測定分散分析の結論', body: `F(${r.dfC}, ${r.dfE}) = ${fmt(r.F, 4)}、p = ${fmt(r.p, 5)}。帰無仮説は「すべての条件の母平均が等しい」です。${r.p < alpha ? '棄却されます。条件によって平均が異なります。' : '棄却されません。'} 個人差（被験者の変動）を誤差から取り除いているため、対応なしの分散分析より検出力が高くなります。` },
+        { level: r.ggEpsilon < .75 ? 'warn' : 'ok', title: '球面性（sphericity）の確認', body: `Greenhouse–Geisser の ε = ${fmt(r.ggEpsilon, 4)}。1 に近いほど球面性が保たれています。${r.ggEpsilon < .75 ? '0.75 を下回っているため、自由度を補正した GG 補正後 p 値（' + fmt(r.pGG, 5) + '）で判断してください。無補正の p 値は甘すぎます。' : '0.75 以上なので、無補正の p 値をそのまま使って差し支えありません。'} 球面性とは「どの 2 条件の差をとっても分散が等しい」という仮定です。` },
+        { level: 'info', title: '効果量', body: `偏 η² = ${fmt(r.etaPartial, 4)}。条件の効果が、条件＋残差の変動のうち占める割合です。被験者間の個人差を分母から除いているため、通常の η² より大きめの値になります。` },
+        { level: 'info', title: 'データの形', body: '同じ対象を条件の数だけ測った「横持ち」のデータを想定しています。1 行 = 1 人（1 個体）、列 = 条件です。欠測のある行は自動的に除外しています（リストワイズ除去）。' }
+      ]);
+      $('a_var').innerHTML = '';
+      return;
+    }
+    const r = S.friedmanTest(rows, names);
+    $('a_out').innerHTML = statCards([
+      ['χ² 統計量', fmt(r.statistic, 4), 'hot'], ['自由度', r.df],
+      ['p 値', r.p < 1e-4 ? r.p.toExponential(2) : r.p.toFixed(5), r.p < alpha ? 'pos' : ''],
+      ['対象数 n', r.n], ['条件数 k', r.k], ['Kendall の W', fmt(r.kendallW, 4)]
+    ]) + '<div style="margin-top:14px">' + tableHTML(['条件', '平均順位', '中央値'],
+      names.map((n, j) => [td(n), td(fmt(r.meanRanks[j], 3)), td(fmt(S.median(rows.map(x => x[j]))))])) + '</div>';
+    $('a_post').innerHTML = '';
+    renderAdvice('a_advice', [
+      { level: 'key', title: 'Friedman 検定の結論', body: `χ²(${r.df}) = ${fmt(r.statistic, 4)}、p = ${fmt(r.p, 5)}。${r.p < alpha ? '条件によって分布の位置が異なると判断できます。' : '条件間に差があるとは言えません。'} 各対象の中だけで順位をつけ、条件ごとの順位の偏りを見る検定です。個人差の影響を受けません。` },
+      { level: 'info', title: 'Kendall の一致係数 W', body: `W = ${fmt(r.kendallW, 4)}（0〜1）。対象どうしが同じ順位づけをしている度合いです。0.5 を超えると、多くの対象で条件の順序が一致していることを意味します。` },
+      { level: 'info', title: '使いどころ', body: '反復測定分散分析の正規性が疑わしいとき、順序尺度（5 段階評価など）のとき、外れ値が大きいときに使います。代償として、正規分布が成り立つ場面では検出力がやや落ちます。' }
+    ]);
+    $('a_var').innerHTML = '';
+  }
+
   /* ============================================================
      母比率・母分散
      ============================================================ */
@@ -759,10 +826,33 @@
     const k = $('c_kind').value;
     $('c_manwrap').style.display = k === 'manual' ? '' : 'none';
     $('c_expwrap').style.display = k === 'gof' ? '' : 'none';
+    $('c_mcwrap').style.display = k === 'mcnemar' ? '' : 'none';
     $('c_c').parentElement.style.display = k === 'indep' ? '' : 'none';
+    $('c_r').parentElement.style.display = (k === 'indep' || k === 'gof') ? '' : 'none';
   });
   $('c_run').addEventListener('click', () => {
     const kind = $('c_kind').value;
+    if (kind === 'mcnemar') {
+      const b = +$('c_b').value, c2 = +$('c_c2').value;
+      const r = S.mcnemarTest(b, c2);
+      $('c_table').innerHTML = tableHTML(['', '2回目 ○', '2回目 ×', '合計'], [
+        [td('<b>1回目 ○</b>'), td('a（一致）'), td(`<b style="color:#fde725">${b}</b>`), td('—')],
+        [td('<b>1回目 ×</b>'), td(`<b style="color:#fde725">${c2}</b>`), td('d（一致）'), td('—')]
+      ]) + '<div style="margin-top:12px">' + statCards([
+        ['χ²（Yates 補正）', fmt(r.statistic, 4), 'hot'], ['自由度', 1],
+        ['p 値', r.p < 1e-4 ? r.p.toExponential(2) : r.p.toFixed(5), r.p < .05 ? 'pos' : ''],
+        ['正確二項 p', r.pExact.toFixed(5)], ['不一致ペア数', r.discordant], ['オッズ比 b/c', fmt(r.oddsRatio, 4)]
+      ]) + '</div><p class="note">McNemar 検定は一致セル（a, d）を使いません。変化した人だけを見て、変化の向きが偏っているかを判定します。</p>';
+      plot('c_plot', [{ type: 'bar', x: ['○→×', '×→○'], y: [b, c2], marker: { color: ['#e4548a', '#22a884'] } }],
+        { title: '不一致ペアの内訳' });
+      clearPlot('c_plot2');
+      renderAdvice('c_advice', [
+        { level: 'key', title: 'McNemar 検定の結論', body: `χ² = ${fmt(r.statistic, 4)}、p = ${fmt(r.p, 5)}（正確二項検定では ${fmt(r.pExact, 5)}）。帰無仮説は「○→× と ×→○ が同じ確率で起こる」です。${r.p < .05 ? '棄却されるため、変化の向きに偏りがあると判断できます。' : '棄却されません。変化の向きに偏りがあるとは言えません。'}` },
+        { level: r.discordant < 25 ? 'warn' : 'ok', title: '近似の妥当性', body: `不一致ペアは ${r.discordant} 組です。${r.discordant < 25 ? '25 組未満のときはカイ二乗近似が不正確になるため、正確二項検定の p 値を採用してください。' : '25 組以上あり、カイ二乗近似は妥当です。'}` },
+        { level: 'info', title: '使いどころ', body: '同じ対象を前後 2 回、○×で測ったとき（治療前後の症状の有無、キャンペーン前後の購入有無など）に使います。対応のない 2×2 表にカイ二乗検定を当てるのは誤りです。' }
+      ]);
+      return;
+    }
     let table, rowLab, colLab;
     if (kind === 'manual') {
       const lines = $('c_man').value.trim().split(/\r?\n/).filter(Boolean);
@@ -877,7 +967,9 @@
     const yN = $('g_y').value;
     let xs = [...$('g_x').selectedOptions].map(o => o.value).filter(n => n !== yN);
     if (!yN || !xs.length) { alert('目的変数と説明変数を選んでください。'); return; }
-    const poly = +$('g_poly').value, conf = +$('g_conf').value, tr = $('g_tr').value;
+    const poly = +$('g_poly').value, conf = +$('g_conf').value;
+    const modelKind = $('g_model').value;
+    const tr = modelKind === 'poisson' ? 'none' : $('g_tr').value;
     const P = pairsOf([yN].concat(xs));
     let y = P.cols[0].slice(), cols = P.cols.slice(1), names = xs.slice();
     if (tr === 'log') { if (y.some(v => v <= 0)) { alert('対数変換には正の値が必要です。'); return; } y = y.map(Math.log); }
@@ -885,6 +977,7 @@
     if (xs.length === 1 && poly > 1) {
       for (let d = 2; d <= poly; d++) { cols.push(P.cols[1].map(v => Math.pow(v, d))); names.push(`${xs[0]}^${d}`); }
     }
+    if (modelKind === 'poisson') { runPoisson(y, cols, names, yN, conf); return; }
     let m;
     try { m = S.ols(y, cols, names, { conf }); } catch (e) { alert('推定できませんでした：' + e.message); return; }
     $('g_out').innerHTML = statCards([
@@ -938,6 +1031,53 @@
     if (tr !== 'none') adv.push({ level: 'warn', title: '変換した目的変数の解釈', body: `目的変数を${tr === 'log' ? '対数' : '平方根'}変換しています。係数は元の単位ではありません。${tr === 'log' ? '対数変換の場合、係数 b は「x が 1 増えると y がおよそ (e^b − 1)×100 % 変化する」と読みます。' : ''}` });
     renderAdvice('g_advice', adv);
   });
+
+
+  function runPoisson(y, cols, names, yN, conf) {
+    if (y.some(v => v < 0 || Math.abs(v - Math.round(v)) > 1e-9)) {
+      alert('ポアソン回帰の目的変数は 0 以上の整数（回数・件数）である必要があります。'); return;
+    }
+    let m;
+    try { m = S.poissonReg(y, cols, names, { conf }); } catch (e) { alert('推定できませんでした：' + e.message); return; }
+    $('g_out').innerHTML = statCards([
+      ['n', m.n], ['尤度比 χ²', fmt(m.lrChi2, 4), 'hot'],
+      ['p 値', m.lrP < 1e-4 ? m.lrP.toExponential(2) : m.lrP.toFixed(5), m.lrP < .05 ? 'pos' : ''],
+      ['McFadden R²', fmt(m.mcfadden, 4)], ['逸脱度', fmt(m.deviance, 2)], ['残差自由度', m.dfRes],
+      ['過分散の指標', fmt(m.dispersion, 4), m.dispersion > 1.5 ? 'neg' : 'pos'],
+      ['AIC', fmt(m.aic, 2)], ['平均 / 分散', `${fmt(m.meanY, 3)} / ${fmt(m.varY, 3)}`]
+    ]) + '<div style="margin-top:14px">' + tableHTML(['項', '係数（対数スケール）', '標準誤差', 'z 値', 'p 値', '発生率比 IRR', 'IRR の 95% 区間'],
+      m.coefs.map(c => [td(c.name), td(fmt(c.estimate, 5)), td(fmt(c.se, 5)), td(fmt(c.z, 4)), pcell(c.p), td(fmt(c.irr, 4)), td(`[${fmt(c.irrLo, 3)}, ${fmt(c.irrHi, 3)}]`)])) + '</div>'
+      + `<div class="formula">log(E[${yN}]) = ${m.coefs.map((c, i) => i === 0 ? fmt(c.estimate, 4) : `${c.estimate >= 0 ? ' + ' : ' − '}${fmt(Math.abs(c.estimate), 4)} × ${c.name}`).join('')}</div>`;
+    plot('g_p1', [
+      { type: 'scatter', mode: 'markers', x: m.fitted, y: m.devResid, marker: { color: '#22a884', size: 7, opacity: .8 }, name: '逸脱度残差' },
+      { type: 'scatter', mode: 'lines', x: [Math.min(...m.fitted), Math.max(...m.fitted)], y: [0, 0], line: { color: '#fde725', dash: 'dash' }, showlegend: false }
+    ], { title: '逸脱度残差 vs 予測値', xaxis: { title: '予測される平均 μ' }, yaxis: { title: '逸脱度残差' } });
+    const sr = m.devResid.slice().sort((a, b) => a - b), nn = sr.length;
+    plot('g_p2', [
+      { type: 'scatter', mode: 'markers', x: sr.map((_, i) => S.normal.inv((i + 1 - .375) / (nn + .25))), y: sr, marker: { color: '#2a788e', size: 7, opacity: .8 }, name: '逸脱度残差' },
+      { type: 'scatter', mode: 'lines', x: [-3, 3], y: [-3, 3], line: { color: '#fde725', dash: 'dash' }, name: '基準線' }
+    ], { title: '逸脱度残差の Q-Q プロット', xaxis: { title: '理論分位点' } });
+    const mx = Math.max(...y), obs = [], exp = [];
+    for (let k = 0; k <= Math.min(mx, 20); k++) {
+      obs.push(y.filter(v => v === k).length);
+      exp.push(S.sum(m.fitted.map(mu => S.poisson.pmf(k, mu))));
+    }
+    plot('g_p3', [
+      { type: 'bar', x: obs.map((_, k) => k), y: obs, name: '観測度数', marker: { color: '#22a884' } },
+      { type: 'scatter', mode: 'lines+markers', x: exp.map((_, k) => k), y: exp, name: 'モデルの期待度数', line: { color: '#fde725', width: 2.4 } }
+    ], { title: '観測度数とモデルの期待度数', xaxis: { title: yN + ' の値' }, yaxis: { title: '件数' } });
+    plot('g_p4', [
+      { type: 'scatter', mode: 'markers', x: y, y: m.fitted, marker: { color: '#2a788e', size: 7, opacity: .8 }, name: '観測 vs 予測' },
+      { type: 'scatter', mode: 'lines', x: [0, Math.max(...y)], y: [0, Math.max(...y)], line: { color: '#fde725', dash: 'dash' }, name: '完全一致' }
+    ], { title: '観測値 vs 予測平均', xaxis: { title: '観測値' }, yaxis: { title: '予測平均' } });
+    renderAdvice('g_advice', [
+      { level: 'key', title: 'モデル全体の有意性', body: `尤度比検定 χ²(${m.lrDf}) = ${fmt(m.lrChi2, 4)}、p = ${fmt(m.lrP, 5)}。${m.lrP < .05 ? '説明変数なしのモデルより有意に当てはまりが良いです。' : '説明変数なしのモデルと比べて改善していません。'} McFadden R² = ${fmt(m.mcfadden, 4)}、AIC = ${fmt(m.aic, 2)}。` },
+      { level: 'key', title: '発生率比（IRR）の読み方', body: m.coefs.slice(1).map(c => `<b>${c.name}</b>：IRR = ${fmt(c.irr, 4)}（95%CI ${fmt(c.irrLo, 3)}–${fmt(c.irrHi, 3)}、p = ${fmt(c.p, 5)}）→ ${c.name} が 1 単位増えると、他を一定として発生件数の期待値が <b>${fmt(c.irr, 3)} 倍</b>（${c.irr > 1 ? ((c.irr - 1) * 100).toFixed(1) + '% 増' : ((1 - c.irr) * 100).toFixed(1) + '% 減'}）。`).join('<br>') + '<br>IRR の信頼区間が 1 をまたぐ変数は有意ではありません。' },
+      { level: m.dispersion > 1.5 ? 'risk' : 'ok', title: '過分散（overdispersion）の確認', body: `Pearson χ² / 残差自由度 = ${fmt(m.dispersion, 4)}。1 に近ければポアソン分布の仮定（平均 = 分散）と整合します。${m.dispersion > 1.5 ? 'この値は 1.5 を超えており、分散が平均より大きい「過分散」の状態です。標準誤差が過小評価され、p 値が甘くなります。負の二項回帰や準ポアソン回帰が適切ですが、本ツールでは未実装のため、R の MASS::glm.nb などで再確認してください。' : '過分散の兆候はありません。'} 参考：目的変数の実測平均 ${fmt(m.meanY, 3)}、実測分散 ${fmt(m.varY, 3)}。` },
+      { level: 'info', title: 'なぜ対数リンクなのか', body: '件数は負にならないため、直接 y を線形式で予測すると負の予測が出てしまいます。log(E[y]) を線形式で表すことで予測は必ず正になり、係数は「掛け算の効果（何倍になるか）」として解釈できます。' },
+      { level: 'info', title: '観測期間が違う場合', body: '「1 か月あたりの件数」と「1 年あたりの件数」が混在するデータでは、そのままでは比較できません。本来はオフセット項（log の観測期間）を入れます。本ツールの画面からはオフセットを指定できないため、あらかじめ期間をそろえてから読み込んでください。' }
+    ]);
+  }
 
   /* ============================================================
      ロジスティック回帰
@@ -1046,6 +1186,36 @@
       body: `OOB（out-of-bag）は各木の学習に使われなかったデータでの精度で、交差検証に近い信頼性があります。単一の木より精度が上がるのが普通ですが、代わりに「1 本の図として読む」ことはできなくなります。重要度が単一木と大きく違う変数は、木の構造が不安定であることを示しています。`
     }]));
   });
+
+  $('pi_run').addEventListener('click', () => {
+    if (!LAST_TREE) { alert('先に決定木を作ってください。'); return; }
+    const { t, X, Y, xs, task } = LAST_TREE;
+    const predict = row => S.treePredict(t.tree, row);
+    const pi = S.permutationImportance(predict, X, Y, { task, repeats: 12 });
+    const ord = pi.importance.map((o, i) => ({ n: xs[i], ...o })).sort((a, b) => a.mean - b.mean);
+    plot('dt_perm', [{
+      type: 'bar', orientation: 'h', x: ord.map(o => o.mean), y: ord.map(o => o.n),
+      error_x: { type: 'data', array: ord.map(o => o.sd), color: '#fde725', thickness: 1.4 },
+      marker: { color: ord.map((_, i) => VIRIDIS[i % 8]) }
+    }], { title: `並べ替え重要度（${task === 'classification' ? '正解率' : 'R²'}の低下量）`, xaxis: { title: '性能の低下' } });
+    const cls = task === 'classification' ? [...new Set(Y)].sort()[0] : null;
+    const T = xs.map((n, i) => {
+      const pd = S.partialDependence(predict, X, i, { grid: 30, classIndex: cls });
+      const lo = Math.min(...pd.x), hi = Math.max(...pd.x);
+      return { type: 'scatter', mode: 'lines', x: pd.x.map(v => (v - lo) / ((hi - lo) || 1)), y: pd.y, name: n, line: { color: VIRIDIS[i % 8], width: 2.4 } };
+    });
+    plot('dt_pdp', T, {
+      title: task === 'classification' ? `部分依存プロット（P(${cls}) の平均）` : '部分依存プロット（予測値の平均）',
+      xaxis: { title: '各変数の値（0＝最小値、1＝最大値に正規化）' }, yaxis: { title: task === 'classification' ? `P(${cls})` : '予測値' }
+    });
+    renderAdvice('dt_advice', AD.tree(t).concat([
+      { level: 'key', title: '並べ替え重要度（permutation importance）', body: `その変数の値だけをランダムに入れ替えたときに性能がどれだけ落ちるかを測っています（12 回の平均、誤差棒は標準偏差）。基準性能は ${fmt(pi.baseScore, 4)}。落ち込みが大きい変数ほど予測に不可欠です。木の分割回数に基づく重要度と違い、モデルの種類を問わず同じ意味で比較できます。` },
+      { level: 'key', title: '部分依存プロット（PDP）', body: '重要度は「どれだけ効くか」しか教えてくれません。PDP は「どちら向きに、どんな形で効くか」を示します。右上がりなら値が大きいほど予測が上がり、階段状なら決定木が閾値で切っていることが分かります。' },
+      { level: 'warn', title: 'PDP の前提', body: '他の変数を実際の分布のまま固定して平均を取るため、変数どうしが強く相関している場合（例：身長と体重）、現実にはあり得ない組み合わせを平均に含んでしまいます。相関の強い変数がある場合は解釈に注意してください。' },
+      { level: 'info', title: 'SHAP との関係', body: '同じ「予測の理由を説明する」道具として SHAP がありますが、本ツールには実装していません。SHAP は 1 件ごとの寄与を分解できる点が優れています。PDP と並べ替え重要度は、全体の傾向を見るぶんには SHAP とおおむね同じ結論を与えます。' }
+    ]));
+  });
+
   function drawTree(node, task) {
     const W = 1180, levelH = 108;
     let maxD = 0; (function d(n, k) { maxD = Math.max(maxD, k); if (!n.leaf) { d(n.left, k + 1); d(n.right, k + 1); } })(node, 0);
@@ -1319,15 +1489,9 @@
     } finally { btn.disabled = false; $('n_bar').style.width = '0'; }
   });
 
-  /* ---------- ガイドの注意書き ---------- */
-  renderAdvice('guide_advice', [
-    { level: 'key', title: '計算はすべてブラウザ内で行われます', body: '読み込んだデータはサーバーに送信されません。ページを閉じるとデータは消えます。共有したい場合は CSV を各自で配布してください。' },
-    { level: 'info', title: '実装の方針', body: '分布関数（正規・t・カイ二乗・F・二項・ポアソンほか）と各検定は、外部の統計ライブラリに依存せず自前で実装しています。作図は Plotly.js、ニューラルネットは TensorFlow.js を使用しています。' },
-    { level: 'warn', title: '近似を用いている箇所', body: 'Shapiro–Wilk の p 値は Royston の近似、Mann–Whitney と Wilcoxon は正規近似（同順位・連続性補正あり）、ADF 検定は大標本の臨界値との比較、Kolmogorov–Smirnov の p 値は Lilliefors 近似です。極端に小さい標本では、R や SAS の正確法と数値が一致しないことがあります。' },
-    { level: 'warn', title: '多重比較は Holm / Bonferroni', body: 'Tukey の HSD（studentized range 分布）は実装していません。Holm 法は Bonferroni より検出力が高く、族の第一種過誤を厳密に制御するため、実務上の代替として十分に使えます。' },
-    { level: 'warn', title: '「Prophet」ではありません', body: '時系列と株価の加法モデルは、Prophet の考え方（区分線形トレンド＋変化点＋フーリエ季節項）を参考に自前で実装したものです。Meta の Prophet そのものではなく、MCMC による事後分布の推定や休日効果も含んでいません。予測区間は残差の標準偏差に基づく簡易的なものです。' },
-    { level: 'risk', title: '意思決定に使う前に', body: '重要な判断に用いる場合は、R・Python・SAS など確立された環境で結果を再現し、必ず検証してください。とくに医療・金融・法務の領域では、このツール単独の結果を根拠にしないでください。' }
-  ]);
-
+  window.SLUI = {
+    plot, clearPlot, go, renderAdvice, statCards, tableHTML, td, pcell, fmt, VIRIDIS, merge, CFG,
+    hasData: () => D.n > 0
+  };
   go('data');
 })();

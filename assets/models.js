@@ -615,6 +615,98 @@
     return { type: '多層パーセプトロン（MLP）', history: hist, nParams, task, valIdx: vi, trainIdx: ti, arch: [nf, ...hidden, nCls], ...out };
   }
 
+
+  /* ================= ポアソン回帰（対数リンク・IRLS） ================= */
+  function poissonReg(y, Xcols, names, { maxIter = 60, tol = 1e-10, conf = 0.95, offset = null } = {}) {
+    const n = y.length;
+    const X = y.map((_, i) => [1, ...Xcols.map(c => c[i])]);
+    const p = X[0].length, labels = ['切片', ...names];
+    const off = offset || new Array(n).fill(0);
+    let b = new Array(p).fill(0);
+    b[0] = Math.log(Math.max(mean(y), 1e-6));
+    let XtWXi = null, iter = 0;
+    for (iter = 0; iter < maxIter; iter++) {
+      const eta = X.map((r, i) => r.reduce((s, v, j) => s + v * b[j], 0) + off[i]);
+      const mu = eta.map(e => Math.exp(Math.min(e, 700)));
+      const W = mu.map(m => Math.max(m, 1e-10));
+      const XtW = transpose(X).map(row => row.map((v, i) => v * W[i]));
+      const XtWX = matMul(XtW, X);
+      const z = y.map((yy, i) => eta[i] - off[i] + (yy - mu[i]) / W[i]);
+      let inv; try { inv = inverse(XtWX); } catch (e) { break; }
+      const nb = matMul(inv, matMul(XtW, z.map(v => [v]))).map(r => r[0]);
+      const delta = Math.max(...nb.map((v, j) => Math.abs(v - b[j])));
+      b = nb; XtWXi = inv;
+      if (delta < tol || !isFinite(delta)) break;
+    }
+    const eta = X.map((r, i) => r.reduce((s, v, j) => s + v * b[j], 0) + off[i]);
+    const mu = eta.map(e => Math.exp(Math.min(e, 700)));
+    const ll = sum(y.map((yy, i) => yy * Math.log(Math.max(mu[i], 1e-300)) - mu[i] - S.lgamma(yy + 1)));
+    const muNull = mean(y);
+    const llNull = sum(y.map(yy => yy * Math.log(muNull) - muNull - S.lgamma(yy + 1)));
+    const dev = 2 * sum(y.map((yy, i) => (yy > 0 ? yy * Math.log(yy / mu[i]) : 0) - (yy - mu[i])));
+    const devNull = 2 * sum(y.map(yy => (yy > 0 ? yy * Math.log(yy / muNull) : 0) - (yy - muNull)));
+    const pearson = sum(y.map((yy, i) => (yy - mu[i]) ** 2 / mu[i]));
+    const dfRes = n - p;
+    const zc = normal.inv(1 - (1 - conf) / 2);
+    const coefs = b.map((v, j) => {
+      const se = XtWXi ? Math.sqrt(Math.abs(XtWXi[j][j])) : NaN;
+      const z = v / se;
+      return {
+        name: labels[j], estimate: v, se, z, p: pFromZ(z, 'two-sided'),
+        irr: Math.exp(v), irrLo: Math.exp(v - zc * se), irrHi: Math.exp(v + zc * se)
+      };
+    });
+    return {
+      type: 'ポアソン回帰（一般化線形モデル・対数リンク）', n, p, coefs, fitted: mu,
+      resid: y.map((yy, i) => yy - mu[i]),
+      devResid: y.map((yy, i) => Math.sign(yy - mu[i]) * Math.sqrt(Math.max(0, 2 * ((yy > 0 ? yy * Math.log(yy / mu[i]) : 0) - (yy - mu[i]))))),
+      ll, deviance: dev, nullDeviance: devNull, dfRes, dfNull: n - 1,
+      pearsonChi2: pearson, dispersion: pearson / dfRes,
+      lrChi2: 2 * (ll - llNull), lrDf: p - 1, lrP: 1 - chisquare.cdf(2 * (ll - llNull), p - 1),
+      mcfadden: 1 - ll / llNull, aic: -2 * ll + 2 * p, bic: -2 * ll + Math.log(n) * p,
+      iter, names,
+      meanY: mean(y), varY: variance(y)
+    };
+  }
+
+  /* ================= 並べ替え重要度・部分依存 ================= */
+  function permutationImportance(predict, X, y, { task = 'classification', repeats = 10, seed = 3 } = {}) {
+    let rnd = seed;
+    const rand = () => { rnd = (rnd * 1103515245 + 12345) % 2147483648; return rnd / 2147483648; };
+    const score = rows => {
+      const pr = rows.map(predict);
+      if (task === 'classification') return mean(y.map((v, i) => String(v) === String(pr[i]) ? 1 : 0));
+      const m = mean(y);
+      return 1 - sum(y.map((v, i) => (v - pr[i]) ** 2)) / sum(y.map(v => (v - m) ** 2));
+    };
+    const base = score(X);
+    const nf = X[0].length;
+    const out = [];
+    for (let f = 0; f < nf; f++) {
+      const drops = [];
+      for (let r = 0; r < repeats; r++) {
+        const col = X.map(row => row[f]);
+        for (let i = col.length - 1; i > 0; i--) { const j = Math.floor(rand() * (i + 1)); [col[i], col[j]] = [col[j], col[i]]; }
+        const Xp = X.map((row, i) => { const c = row.slice(); c[f] = col[i]; return c; });
+        drops.push(base - score(Xp));
+      }
+      out.push({ mean: mean(drops), sd: sd(drops) });
+    }
+    return { baseScore: base, importance: out, task, repeats };
+  }
+  function partialDependence(predict, X, featureIdx, { grid = 24, classIndex = null } = {}) {
+    const col = X.map(r => r[featureIdx]);
+    const lo = Math.min(...col), hi = Math.max(...col);
+    const xs = [], ys = [];
+    for (let g = 0; g < grid; g++) {
+      const v = lo + (hi - lo) * g / (grid - 1);
+      const preds = X.map(r => { const c = r.slice(); c[featureIdx] = v; return predict(c); });
+      xs.push(v);
+      ys.push(classIndex === null ? mean(preds.map(Number)) : mean(preds.map(p => String(p) === classIndex ? 1 : 0)));
+    }
+    return { x: xs, y: ys };
+  }
+
   /* ================= 主成分分析（おまけ） ================= */
   function pca(cols, names) {
     const n = cols[0].length, k = cols.length;
@@ -658,7 +750,8 @@
   }
 
   root.SL = Object.assign(root.SL, {
-    ols, logistic, confusion, rocCurve, decisionTree, randomForest, treePredict,
+    ols, logistic, poissonReg, confusion, rocCurve, decisionTree, randomForest, treePredict,
+    permutationImportance, partialDependence,
     acf, pacf, ljungBox, diff, movingAverage, centeredMA, decompose, holtWinters, arFit, adfTest,
     additiveForecast, ema, rsi, macd, bollinger, priceAnalytics, trainMLP, pca
   });
