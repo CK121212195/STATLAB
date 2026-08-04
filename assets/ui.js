@@ -235,48 +235,137 @@
   $('manualClear').addEventListener('click', () => { $('manualBody').value = ''; $('manualHead').value = ''; });
 
   /* ---------- サンプルデータ ---------- */
-  let seed = 20260804;
-  const rnd = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; };
-  const gauss = (m, s) => { let u = 0, v = 0; while (!u) u = rnd(); while (!v) v = rnd(); return m + s * Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); };
+  function mkRnd(seed) {
+    let x = seed >>> 0;
+    const rnd = () => { x = (x * 1103515245 + 12345) % 2147483648; return x / 2147483648; };
+    const gauss = (m, s) => { let u = 0, v = 0; while (!u) u = rnd(); while (!v) v = rnd(); return m + s * Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); };
+    const pick = a => a[Math.floor(rnd() * a.length)];
+    const tdist = df => { let z = gauss(0, 1), c = 0; for (let i = 0; i < df; i++) c += gauss(0, 1) ** 2; return z / Math.sqrt(c / df); };
+    return { rnd, gauss, pick, tdist };
+  }
   const SAMPLES = {
-    iris() {
-      const sp = [['setosa', 5.0, .35, 3.4, .38, 1.46, .17, .25, .11], ['versicolor', 5.94, .52, 2.77, .31, 4.26, .47, 1.33, .20], ['virginica', 6.59, .64, 2.97, .32, 5.55, .55, 2.03, .27]];
+    /* ① 中古マンション：回帰・分散分析・決定木・MLP の主役 */
+    mansion() {
+      const { rnd, gauss } = mkRnd(31415);
+      const AR = [['都心3区', 1.44, 12, 35, .16], ['城南・城西', 1.22, 5, 22, .28],
+      ['城東・城北', .96, 2, 14, .30], ['近郊（多摩・県境）', .71, .6, 8, .26]];
       const rows = [];
-      sp.forEach(s => { for (let i = 0; i < 50; i++) rows.push({ species: s[0], がく片長: gauss(s[1], s[2]).toFixed(2), がく片幅: gauss(s[3], s[4]).toFixed(2), 花弁長: gauss(s[5], s[6]).toFixed(2), 花弁幅: gauss(s[7], s[8]).toFixed(2) }); });
-      return { rows, fields: ['species', 'がく片長', 'がく片幅', '花弁長', '花弁幅'], name: 'アヤメ（生成データ）' };
-    },
-    sales() {
-      const rows = []; let lvl = 480;
-      for (let i = 0; i < 96; i++) {
-        const y = 2018 + Math.floor(i / 12), m = i % 12 + 1;
-        lvl += 2.4 + gauss(0, 5);
-        const seas = 62 * Math.sin(2 * Math.PI * (m - 3) / 12) + 40 * (m === 12 ? 1 : 0);
-        rows.push({ 年月: `${y}-${String(m).padStart(2, '0')}`, 売上: Math.round(lvl + seas + gauss(0, 14)), 広告費: Math.round(60 + 20 * Math.sin(2 * Math.PI * m / 12) + gauss(0, 8)), 気温: (16 + 11 * Math.sin(2 * Math.PI * (m - 4) / 12) + gauss(0, 1.4)).toFixed(1) });
+      for (let i = 0; i < 1200; i++) {
+        const r = rnd(); let c = 0, a = AR[3];
+        for (const q of AR) { c += q[4]; if (r <= c) { a = q; break; } }
+        const P = Math.round((a[2] + rnd() * (a[3] - a[2])) * 10) / 10;
+        let A = Math.round(gauss(56, 15) * 10) / 10; A = Math.min(Math.max(A, 22), 100);
+        const age = [Math.floor(rnd() * 13), Math.floor(rnd() * 31), Math.floor(rnd() * 46)][Math.floor(rnd() * 3)];
+        const walk = Math.max(1, Math.min(25, Math.floor(Math.abs(gauss(0, 6)) + 1)));
+        const fl = Math.max(1, Math.min(38, Math.floor(Math.abs(gauss(0, 6)) + 1)));
+        let u = 62 * a[1];
+        u *= 1 + .55 * Math.log(1 + P / 3);
+        u *= Math.exp(-.045 * walk);
+        u *= age <= 10 ? 1 - .03 * age : .70 * Math.exp(-.012 * (age - 10));
+        u *= Math.pow(55 / A, .18);
+        u *= 1 + .011 * fl;
+        if (walk <= 5 && P >= 15) u *= 1.16;
+        u *= Math.exp(gauss(0, .085));
+        rows.push({ エリア: a[0], 専有面積: A.toFixed(1), 築年数: age, 駅徒歩分: walk, 所在階: fl, 駅乗降客数: P.toFixed(1), 成約価格: Math.round(u * A / 10) * 10 });
       }
-      return { rows, fields: ['年月', '売上', '広告費', '気温'], name: '売上時系列（生成データ）' };
+      return { rows, fields: ['エリア', '専有面積', '築年数', '駅徒歩分', '所在階', '駅乗降客数', '成約価格'], name: '中古マンション成約（生成データ・1200件）' };
     },
-    clinic() {
+
+    /* ② サブスク解約：ロジスティック回帰・決定木・ROC の主役 */
+    churn() {
+      const { rnd, gauss, pick } = mkRnd(80512);
       const rows = [];
-      for (let i = 0; i < 260; i++) {
-        const age = Math.round(gauss(58, 12)), bmi = +gauss(24.5, 3.6).toFixed(1);
-        const sbp = Math.round(gauss(126, 15) + (age - 58) * .35);
-        const arm = rnd() < .5 ? '対照' : '投与';
-        const lin = -7.4 + .062 * age + .13 * bmi + .021 * sbp - (arm === '投与' ? 1.05 : 0);
+      const planName = f => f <= 790 ? 'ライト' : (f <= 1480 ? 'スタンダード' : 'プレミアム');
+      for (let i = 0; i < 2000; i++) {
+        const plan = pick([490, 790, 990, 1480, 1980]);
+        const months = Math.max(1, Math.min(48, Math.round(Math.abs(gauss(0, 15)) + 1)));
+        const login = Math.max(0, Math.min(30, Math.round(gauss(13, 8))));
+        const hours = Math.max(0, Math.round((login * gauss(1.7, .7) + gauss(2, 3)) * 10) / 10);
+        const support = Math.max(0, Math.round(Math.abs(gauss(0, 1.3))));
+        const hike = rnd() < .34 ? 1 : 0;
+        const lin = 0.05 - .145 * login - .030 * hours + .42 * support - .042 * months
+          + .00058 * plan + .72 * hike + gauss(0, .30);
         const p = 1 / (1 + Math.exp(-lin));
-        rows.push({ 群: arm, 年齢: age, BMI: bmi, 収縮期血圧: sbp, 喫煙: rnd() < .32 ? 'あり' : 'なし', 再発: rnd() < p ? 1 : 0 });
+        rows.push({
+          プラン: planName(plan), 月額料金: plan, 契約月数: months,
+          直近30日ログイン日数: login, 月間視聴時間: hours.toFixed(1),
+          サポート問合せ回数: support, 値上げ経験: hike,
+          解約: rnd() < p ? 1 : 0
+        });
       }
-      return { rows, fields: ['群', '年齢', 'BMI', '収縮期血圧', '喫煙', '再発'], name: '臨床データ（生成データ）' };
+      return { rows, fields: ['プラン', '月額料金', '契約月数', '直近30日ログイン日数', '月間視聴時間', 'サポート問合せ回数', '値上げ経験', '解約'], name: '動画サブスク解約（生成データ・2000件）' };
     },
+
+    /* ③ 家庭の電気：時系列・季節分解・非線形回帰の主役 */
+    power() {
+      const { gauss } = mkRnd(60219);
+      const rows = [];
+      for (let i = 0; i < 84; i++) {                       // 7年 × 12か月
+        const yr = 2019 + Math.floor(i / 12), mo = i % 12 + 1;
+        const temp = 16.2 + 10.8 * Math.sin(2 * Math.PI * (mo - 4.2) / 12) + gauss(0, 1.1);
+        const cool = 15.5 * Math.pow(Math.max(0, temp - 24), 1.32);
+        const heat = 12.8 * Math.pow(Math.max(0, 16 - temp), 1.28);
+        const trend = -0.55 * i;                            // 省エネ家電への置換で微減
+        const kwh = Math.max(90, 268 + cool + heat + trend + gauss(0, 16));
+        const unit = 26.5 + 0.115 * i;                      // 単価は年々上昇
+        rows.push({
+          年月: `${yr}-${String(mo).padStart(2, '0')}`,
+          平均気温: temp.toFixed(1),
+          電気使用量kWh: Math.round(kwh),
+          電気料金円: Math.round((kwh * unit + 1200) / 10) * 10,
+          在宅日数: Math.max(4, Math.min(31, Math.round(gauss(11, 3))))
+        });
+      }
+      return { rows, fields: ['年月', '平均気温', '電気使用量kWh', '電気料金円', '在宅日数'], name: '家庭の電気使用量（生成データ・84か月）' };
+    },
+
+    /* ④ 株価：リスク指標・相関・ベータ推定の主役 */
     stock() {
-      const rows = []; let p = 2450, d = new Date(2024, 0, 2);
-      for (let i = 0; i < 500; i++) {
-        const vol = 0.011 * (1 + .5 * Math.abs(Math.sin(i / 40)));
-        p *= (1 + gauss(0.0004, vol));
+      const { rnd, gauss, tdist } = mkRnd(70413);
+      const rows = [];
+      let px = 2480, idx = 33200, fx = 148.5, vol = .011, d = new Date(2023, 0, 4);
+      for (let i = 0; i < 600; i++) {
+        vol = .00004 + .90 * vol + .09 * Math.abs(gauss(0, .012));   // ボラティリティ・クラスタリング
+        const mkt = gauss(.0004, .0092) + .0035 * tdist(4) * 0;
+        const fxr = gauss(0, .0055);
+        const shock = tdist(4) * vol;                                 // 裾の厚いショック
+        const ret = .0002 + 1.25 * mkt + .28 * fxr + shock;
+        const open = px * (1 + gauss(0, .003));
+        px = px * (1 + ret);
+        const hi = Math.max(open, px) * (1 + Math.abs(gauss(0, .004)));
+        const lo = Math.min(open, px) * (1 - Math.abs(gauss(0, .004)));
+        idx *= (1 + mkt); fx *= (1 + fxr);
         while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() + 1);
-        rows.push({ 日付: d.toISOString().slice(0, 10), 終値: p.toFixed(1), 出来高: Math.round(1.2e6 * (1 + Math.abs(gauss(0, .4)))) });
+        rows.push({
+          日付: d.toISOString().slice(0, 10),
+          始値: open.toFixed(1), 高値: hi.toFixed(1), 安値: lo.toFixed(1), 終値: px.toFixed(1),
+          出来高: Math.round(9.2e5 * (1 + 3.4 * Math.abs(ret) / .01 * (.3 + rnd() * .5))),
+          日経平均: Math.round(idx), ドル円: fx.toFixed(2)
+        });
         d.setDate(d.getDate() + 1);
       }
-      return { rows, fields: ['日付', '終値', '出来高'], name: '株価（生成データ）' };
+      return { rows, fields: ['日付', '始値', '高値', '安値', '終値', '出来高', '日経平均', 'ドル円'], name: '株価・市場指数・為替（生成データ・600営業日）' };
+    },
+
+    /* ⑤ A/Bテスト：母比率の検定・カイ二乗・分散分析の主役 */
+    abtest() {
+      const { rnd, gauss, pick } = mkRnd(11242);
+      const arms = [['A（現行）', .082, 42], ['B（新デザイン）', .118, 58], ['C（新コピー）', .091, 45]];
+      const rows = [];
+      arms.forEach(a => {
+        for (let i = 0; i < 500; i++) {
+          const dev = rnd() < .62 ? 'スマホ' : (rnd() < .78 ? 'PC' : 'タブレット');
+          const stay = Math.max(5, Math.round(gauss(a[2], 22) * (dev === 'PC' ? 1.28 : 1)));
+          const views = Math.max(1, Math.round(stay / 18 + gauss(1.4, 1.1)));
+          const p = a[1] * (dev === 'PC' ? 1.22 : dev === 'タブレット' ? 1.05 : .92) * (1 + (views - 3) * .07);
+          const buy = rnd() < Math.max(.005, Math.min(.6, p)) ? 1 : 0;
+          rows.push({
+            群: a[0], デバイス: dev, 滞在秒数: stay, ページ閲覧数: views,
+            購入: buy, 購入額: buy ? Math.round(Math.exp(gauss(8.55, .52)) / 10) * 10 : 0
+          });
+        }
+      });
+      return { rows, fields: ['群', 'デバイス', '滞在秒数', 'ページ閲覧数', '購入', '購入額'], name: 'WebサイトA/Bテスト（生成データ・1500件）' };
     }
   };
   els('[data-sample]').forEach(b => b.addEventListener('click', () => {
@@ -1268,6 +1357,20 @@
     plot('dt_bound', T, { title: '決定境界（矩形に分割されるのが決定木の特徴）', xaxis: { title: xs[0] }, yaxis: { title: xs[1] } });
   }
 
+
+  // 時系列の x 軸：内部は通し番号、目盛だけ元のラベル（日付など）に差し替える
+  function tsAxis(labels, n, h, view) {
+    const lo = Math.max(1, Math.round(view ? view[0] : 1));
+    const hi = Math.min(n + h, Math.round(view ? view[1] : n + h));
+    const step = Math.max(1, Math.ceil((hi - lo + 1) / 9));
+    const tickvals = [], ticktext = [];
+    for (let i = lo; i <= hi; i += step) {
+      tickvals.push(i);
+      ticktext.push(i <= n ? (labels[i - 1] !== undefined ? String(labels[i - 1]) : String(i)) : `+${i - n}`);
+    }
+    return { tickmode: 'array', tickvals, ticktext, tickangle: ticktext.some(t => t.length > 6) ? -30 : 0 };
+  }
+
   /* ============================================================
      時系列
      ============================================================ */
@@ -1281,27 +1384,36 @@
     if (y.length < 8) { alert('データ点が少なすぎます。'); return; }
     let work = y;
     if (d > 0) work = S.diff(y, d);
-    const T = [{ type: 'scatter', mode: 'lines', x: labels, y, name: yn, line: { color: '#22a884', width: 2 } }];
+    // x 軸は通し番号で持ち、目盛だけ元のラベルに置き換える
+    // （文字列ラベルのまま予測を継ぎ足すと、Plotly が "+1" を数値 1 と解釈して左端に描いてしまう）
+    const n = y.length;
+    const xs = y.map((_, i) => i + 1);
+    const fcX = []; for (let i = 1; i <= h; i++) fcX.push(n + i);
+    const view = n > 200 ? [Math.max(0.5, n - Math.max(120, h * 8)), n + h + 0.5] : null;
+    const axis = tsAxis(labels, n, h, view);
+    const T = [{ type: 'scatter', mode: 'lines', x: xs, y, name: yn, line: { color: '#22a884', width: 2 }, text: labels, hovertemplate: '%{text}<br>%{y}<extra></extra>' }];
     const ma = S.movingAverage(y, Math.max(2, +$('ts_ma').value));
-    T.push({ type: 'scatter', mode: 'lines', x: labels, y: ma, name: `${$('ts_ma').value} 期移動平均`, line: { color: '#fde725', width: 1.8 } });
+    T.push({ type: 'scatter', mode: 'lines', x: xs, y: ma, name: `${$('ts_ma').value} 期移動平均`, line: { color: '#fde725', width: 1.8 } });
     const method = $('ts_method').value;
-    let res = {}, fcLabels = [];
-    for (let i = 1; i <= h; i++) fcLabels.push(`+${i}`);
+    let res = {};
+    // 予測線は最後の実測値から始めて、実績と切れ目なくつなぐ
+    const fcTrace = (fc, name) => ({ type: 'scatter', mode: 'lines', x: [n].concat(fcX), y: [y[n - 1]].concat(fc), name, line: { color: '#e4548a', width: 2.8 } });
+    const bandTrace = (lo, hi) => ({ type: 'scatter', mode: 'lines', x: fcX.concat(fcX.slice().reverse()), y: hi.concat(lo.slice().reverse()), fill: 'toself', fillcolor: 'rgba(228,84,138,.20)', line: { width: 0 }, name: '95% 予測区間', hoverinfo: 'skip' });
     if (method === 'hw') {
       const hw = S.holtWinters(y, { period, seasonal: $('ts_model').value, horizon: h });
       res.hw = hw;
-      T.push({ type: 'scatter', mode: 'lines', x: labels, y: hw.fitted, name: '当てはめ値', line: { color: '#2a788e', width: 1.4, dash: 'dot' } });
-      T.push({ type: 'scatter', mode: 'lines', x: fcLabels, y: hw.forecast, name: '予測', line: { color: '#e4548a', width: 2.6 } });
-      T.push({ type: 'scatter', mode: 'lines', x: fcLabels.concat(fcLabels.slice().reverse()), y: hw.hi.concat(hw.lo.slice().reverse()), fill: 'toself', fillcolor: 'rgba(228,84,138,.16)', line: { width: 0 }, name: '95% 予測区間' });
+      T.push({ type: 'scatter', mode: 'lines', x: xs, y: hw.fitted, name: '当てはめ値', line: { color: '#2a788e', width: 1.4, dash: 'dot' } });
+      T.push(bandTrace(hw.lo, hw.hi));
+      T.push(fcTrace(hw.forecast, '予測'));
       res.resid = hw.resid;
     } else if (method === 'add') {
       const t = y.map((_, i) => i);
       const fo = period > 1 ? [{ period, order: Math.min(6, Math.floor(period / 2)) }] : [];
       const af = S.additiveForecast(t, y, { horizon: h, fourierOrders: fo, nChangepoints: Math.min(15, Math.floor(y.length / 8)) });
       res.af = af;
-      T.push({ type: 'scatter', mode: 'lines', x: labels, y: af.fitted, name: '当てはめ値', line: { color: '#2a788e', width: 1.6, dash: 'dot' } });
-      T.push({ type: 'scatter', mode: 'lines', x: fcLabels, y: af.forecast, name: '予測', line: { color: '#e4548a', width: 2.6 } });
-      T.push({ type: 'scatter', mode: 'lines', x: fcLabels.concat(fcLabels.slice().reverse()), y: af.hi.concat(af.lo.slice().reverse()), fill: 'toself', fillcolor: 'rgba(228,84,138,.16)', line: { width: 0 }, name: '95% 予測区間' });
+      T.push({ type: 'scatter', mode: 'lines', x: xs, y: af.fitted, name: '当てはめ値', line: { color: '#2a788e', width: 1.6, dash: 'dot' } });
+      T.push(bandTrace(af.lo, af.hi));
+      T.push(fcTrace(af.forecast, '予測'));
       res.resid = af.resid;
     } else {
       const p = Math.min(+$('ts_p').value, Math.floor(y.length / 4));
@@ -1312,11 +1424,17 @@
         for (let k = 1; k <= p; k++) v += m.coefs[k].estimate * hist[hist.length - k];
         hist.push(v); fc.push(v);
       }
-      T.push({ type: 'scatter', mode: 'lines', x: labels.slice(p), y: m.fitted, name: `AR(${p}) 当てはめ`, line: { color: '#2a788e', width: 1.6, dash: 'dot' } });
-      T.push({ type: 'scatter', mode: 'lines', x: fcLabels, y: fc, name: '予測', line: { color: '#e4548a', width: 2.6 } });
+      T.push({ type: 'scatter', mode: 'lines', x: xs.slice(p), y: m.fitted, name: `AR(${p}) 当てはめ`, line: { color: '#2a788e', width: 1.6, dash: 'dot' } });
+      T.push(fcTrace(fc, '予測'));
       res.resid = m.resid;
     }
-    plot('ts_main', T, { title: `${yn} の推移と予測`, xaxis: { title: tn || '時点' }, yaxis: { title: yn } });
+    plot('ts_main', T, {
+      title: `${yn} の推移と予測（右端の縦線から先が予測）`,
+      xaxis: Object.assign({ title: (tn || '時点') + (view ? '（直近を拡大表示。ツールバーの Autoscale で全期間）' : '') }, axis, view ? { range: view } : {}),
+      yaxis: { title: yn },
+      shapes: [{ type: 'line', x0: n + .5, x1: n + .5, yref: 'paper', y0: 0, y1: 1, line: { color: '#fde725', dash: 'dot', width: 1.4 } }],
+      annotations: [{ x: n + .5, yref: 'paper', y: 1.02, text: '予測開始', showarrow: false, font: { color: '#fde725', size: 10 }, xanchor: 'right' }]
+    });
 
     // 分解
     if (period > 1 && y.length >= period * 2) {
@@ -1416,13 +1534,21 @@
       { title: '高値からの下落率（ドローダウン）', yaxis: { tickformat: '.0%' } });
     const hh = +$('s_h').value;
     const af = S.additiveForecast(close.map((_, i) => i), close, { horizon: hh, nChangepoints: 14, fourierOrders: [] });
-    const fl = []; for (let i = 1; i <= hh; i++) fl.push(`+${i}`);
+    const nn = close.length;
+    const cx = close.map((_, i) => i + 1);
+    const fx2 = []; for (let i = 1; i <= hh; i++) fx2.push(nn + i);
+    const view2 = [Math.max(0.5, nn - Math.max(120, hh * 8)), nn + hh + 0.5];
     plot('s_fc', [
-      { type: 'scatter', mode: 'lines', x: labels, y: close, name: '実績', line: { color: '#e8eefb', width: 1.6 } },
-      { type: 'scatter', mode: 'lines', x: labels, y: af.trend, name: '推定トレンド', line: { color: '#22a884', width: 2 } },
-      { type: 'scatter', mode: 'lines', x: fl, y: af.forecast, name: '参考予測', line: { color: '#e4548a', width: 2.4 } },
-      { type: 'scatter', mode: 'lines', x: fl.concat(fl.slice().reverse()), y: af.hi.concat(af.lo.slice().reverse()), fill: 'toself', fillcolor: 'rgba(228,84,138,.15)', line: { width: 0 }, name: '95% 区間' }
-    ], { title: '参考予測（区分線形トレンド＋変化点／Prophet の考え方を自前実装したもの）', xaxis: { title: '時点' } });
+      { type: 'scatter', mode: 'lines', x: cx, y: close, name: '実績', line: { color: '#e8eefb', width: 1.6 }, text: labels, hovertemplate: '%{text}<br>%{y}<extra></extra>' },
+      { type: 'scatter', mode: 'lines', x: cx, y: af.trend, name: '推定トレンド', line: { color: '#22a884', width: 2 } },
+      { type: 'scatter', mode: 'lines', x: fx2.concat(fx2.slice().reverse()), y: af.hi.concat(af.lo.slice().reverse()), fill: 'toself', fillcolor: 'rgba(228,84,138,.20)', line: { width: 0 }, name: '95% 区間', hoverinfo: 'skip' },
+      { type: 'scatter', mode: 'lines', x: [nn].concat(fx2), y: [close[nn - 1]].concat(af.forecast), name: '参考予測', line: { color: '#e4548a', width: 2.8 } }
+    ], {
+      title: '参考予測（区分線形トレンド＋変化点／Prophet の考え方を自前実装したもの）',
+      xaxis: Object.assign({ title: '直近を拡大表示。ツールバーの Autoscale で全期間' }, tsAxis(labels, nn, hh, view2), { range: view2 }),
+      shapes: [{ type: 'line', x0: nn + .5, x1: nn + .5, yref: 'paper', y0: 0, y1: 1, line: { color: '#fde725', dash: 'dot', width: 1.4 } }],
+      annotations: [{ x: nn + .5, yref: 'paper', y: 1.02, text: '予測開始', showarrow: false, font: { color: '#fde725', size: 10 }, xanchor: 'right' }]
+    });
     renderAdvice('s_advice', AD.stock(pa).concat([{
       level: 'warn', title: 'この「予測」の位置づけ',
       body: '過去のトレンドを延長しているだけで、将来の材料・イベント・市場環境の変化は一切考慮していません。効率的市場仮説のもとでは、価格の系列からの将来予測は原理的に困難です。区間の広さを、不確実性の大きさとして読んでください。'
