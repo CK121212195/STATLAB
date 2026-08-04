@@ -129,7 +129,20 @@
       lrChi2: lr, lrDf: dfLR, lrP: 1 - chisquare.cdf(lr, dfLR),
       mcfadden: 1 - ll / ll0, coxSnell: cs, nagelkerke: cs / (1 - Math.exp(2 * ll0 / n)),
       aic: -2 * ll + 2 * p, bic: -2 * ll + Math.log(n) * p, names,
-      predictProb(xrow) { const e = [1, ...xrow].reduce((s, v, j) => s + v * b[j], 0); return 1 / (1 + Math.exp(-e)); }
+      predictProb(xrow) { const e = [1, ...xrow].reduce((s, v, j) => s + v * b[j], 0); return 1 / (1 + Math.exp(-e)); },
+      // 線形予測子の標準誤差から、予測確率の 95% 信頼区間も返す
+      predictCI(xrow) {
+        const r = [1, ...xrow];
+        const eta = r.reduce((s, v, j) => s + v * b[j], 0);
+        let se = NaN;
+        try { se = Math.sqrt(Math.max(0, matMul(matMul([r], XtWXi), transpose([r]))[0][0])); } catch (e) { }
+        const g = e => 1 / (1 + Math.exp(-e));
+        return {
+          prob: g(eta), logit: eta, odds: Math.exp(eta),
+          lo: isFinite(se) ? g(eta - 1.96 * se) : NaN, hi: isFinite(se) ? g(eta + 1.96 * se) : NaN,
+          contrib: r.map((v, j) => ({ name: labels[j], value: v, coef: b[j], term: v * b[j] }))
+        };
+      }
     };
   }
   function confusion(yTrue, prob, thr = 0.5) {
@@ -204,6 +217,17 @@
   function entropy(y) { const c = {}; y.forEach(v => c[v] = (c[v] || 0) + 1); return -Object.values(c).reduce((s, v) => { const p = v / y.length; return s + p * Math.log2(p); }, 0); }
   function impurity(y, task) { return task === 'classification' ? gini(y) : variance(y, false); }
   function treePredict(node, row) { if (node.leaf) return node.value; return treePredict(row[node.feature] <= node.threshold ? node.left : node.right, row); }
+  // 予測に至るまでの分岐をすべて記録して返す（説明用）
+  function treePath(node, row) {
+    const steps = [];
+    let nd = node;
+    while (!nd.leaf) {
+      const go = row[nd.feature] <= nd.threshold;
+      steps.push({ name: nd.featureName, threshold: nd.threshold, value: row[nd.feature], go, n: nd.n });
+      nd = go ? nd.left : nd.right;
+    }
+    return { steps, leaf: nd };
+  }
   function treeProb(node, row, cls) { if (node.leaf) return (node.prob && node.prob[cls]) || 0; return treeProb(row[node.feature] <= node.threshold ? node.left : node.right, row, cls); }
   function featureImportance(node, nf, total) {
     const imp = new Array(nf).fill(0);
@@ -611,8 +635,24 @@
       if (nCls === 2) out.roc = rocCurve(yEnc, pred.map(r => r[0]));
     }
     const nParams = model.countParams();
-    model.dispose();
-    return { type: '多層パーセプトロン（MLP）', history: hist, nParams, task, valIdx: vi, trainIdx: ti, arch: [nf, ...hidden, nCls], ...out };
+    // モデルは破棄せず保持し、新しいデータの予測に使えるようにする
+    const predictRows = async rows => {
+      const xs = tf.tensor2d(rows.map(r => r.map((v, j) => (v - mu[j]) / sg[j])));
+      const t = model.predict(xs);
+      const arr = await t.array();
+      xs.dispose(); t.dispose();
+      if (task === 'regression') return arr.map(r => ({ value: r[0] * ySd + yMu }));
+      return arr.map(r => {
+        if (nCls === 2) { const p = r[0]; return { probs: [1 - p, p], label: classes[p >= .5 ? 1 : 0], classes }; }
+        const k = r.indexOf(Math.max(...r));
+        return { probs: r, label: classes[k], classes };
+      });
+    };
+    return {
+      type: '多層パーセプトロン（MLP）', history: hist, nParams, task, valIdx: vi, trainIdx: ti,
+      arch: [nf, ...hidden, nCls], predictRows, dispose: () => { try { model.dispose(); } catch (e) { } },
+      featureMean: mu, featureSd: sg, ...out
+    };
   }
 
 
@@ -665,7 +705,14 @@
       lrChi2: 2 * (ll - llNull), lrDf: p - 1, lrP: 1 - chisquare.cdf(2 * (ll - llNull), p - 1),
       mcfadden: 1 - ll / llNull, aic: -2 * ll + 2 * p, bic: -2 * ll + Math.log(n) * p,
       iter, names,
-      meanY: mean(y), varY: variance(y)
+      meanY: mean(y), varY: variance(y),
+      predict(xrow) {
+        const r = [1, ...xrow];
+        const eta = r.reduce((s, v, j) => s + v * b[j], 0);
+        let se = NaN;
+        try { se = Math.sqrt(Math.max(0, matMul(matMul([r], XtWXi), transpose([r]))[0][0])); } catch (e) { }
+        return { fit: Math.exp(eta), lo: Math.exp(eta - 1.96 * se), hi: Math.exp(eta + 1.96 * se) };
+      }
     };
   }
 
@@ -750,7 +797,7 @@
   }
 
   root.SL = Object.assign(root.SL, {
-    ols, logistic, poissonReg, confusion, rocCurve, decisionTree, randomForest, treePredict,
+    ols, logistic, poissonReg, confusion, rocCurve, decisionTree, randomForest, treePredict, treePath,
     permutationImportance, partialDependence,
     acf, pacf, ljungBox, diff, movingAverage, centeredMA, decompose, holtWinters, arFit, adfTest,
     additiveForecast, ema, rsi, macd, bollinger, priceAnalytics, trainMLP, pca

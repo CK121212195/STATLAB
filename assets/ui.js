@@ -1048,6 +1048,85 @@
     renderAdvice('r_advice', AD.pca(p));
   });
 
+
+  /* ============================================================
+     学習したモデルで「新しいデータ」を予測する共通パネル
+     ============================================================ */
+  const medianOf = name => { const a = numOf(name).filter(isFinite); return a.length ? S.median(a) : 0; };
+  function predictPanel(boxId, inputNames, handlers) {
+    const box = $(boxId); if (!box) return;
+    const defs = inputNames.map(n => {
+      const v = medianOf(n);
+      return Math.abs(v) >= 100 ? Math.round(v) : Math.round(v * 100) / 100;
+    });
+    box.innerHTML = `
+      <p class="hint">${handlers.hint || '説明変数の値を入れると、学習済みモデルがその1件について予測します。初期値は各変数の中央値です。'}</p>
+      <div class="grid g3">${inputNames.map((n, i) =>
+        `<div class="field"><label>${n}</label><input type="number" step="any" id="${boxId}_f${i}" value="${defs[i]}"></div>`).join('')}</div>
+      <div class="btnrow">
+        <button class="btn" id="${boxId}_go">この条件で予測する</button>
+        <button class="btn ghost" id="${boxId}_reset">中央値に戻す</button>
+      </div>
+      <div id="${boxId}_out" style="margin-top:16px"></div>
+      <div class="note">
+        <b style="color:var(--v4)">まとめて予測（複数件を一度に）</b><br>
+        1 行に 1 件、列の順は <span style="color:var(--ink)">${inputNames.join(' , ')}</span>。カンマ・タブ・空白のいずれでも区切れます。
+      </div>
+      <div class="field"><textarea id="${boxId}_batch" placeholder="${defs.join(', ')}\n${defs.join(', ')}" style="min-height:88px"></textarea></div>
+      <div class="btnrow">
+        <button class="btn ghost" id="${boxId}_bgo">まとめて予測する</button>
+        <button class="btn ghost" id="${boxId}_dl" disabled>結果を CSV で保存</button>
+      </div>
+      <div id="${boxId}_bout" style="margin-top:12px"></div>`;
+
+    // 学習データの範囲（外挿の警告に使う）
+    const ranges = inputNames.map(n => { const a = numOf(n).filter(isFinite); return a.length ? [Math.min(...a), Math.max(...a)] : [-Infinity, Infinity]; });
+    const outOfRange = v => v.map((x, i) => (x < ranges[i][0] || x > ranges[i][1]) ? `<b>${inputNames[i]}</b>（学習データは ${fmt(ranges[i][0], 2)} 〜 ${fmt(ranges[i][1], 2)}）` : null).filter(Boolean);
+    const rangeWarn = v => {
+      const bad = outOfRange(v);
+      return bad.length ? `<div class="warnbox" style="margin-bottom:12px"><b>外挿になっています</b>：${bad.join('、')} が学習データの範囲の外です。モデルは範囲外でも計算はしますが、その根拠はどこにもありません。この予測は使わないでください。</div>` : '';
+    };
+    const read = () => inputNames.map((_, i) => +$(`${boxId}_f${i}`).value);
+    $(`${boxId}_reset`).onclick = () => { inputNames.forEach((_, i) => $(`${boxId}_f${i}`).value = defs[i]); };
+    $(`${boxId}_go`).onclick = async () => {
+      const v = read();
+      if (v.some(x => !isFinite(x))) { alert('すべての欄に数値を入れてください。'); return; }
+      $(`${boxId}_out`).innerHTML = '<div class="empty">計算中…</div>';
+      try { $(`${boxId}_out`).innerHTML = rangeWarn(v) + await handlers.single(v); }
+      catch (e) { $(`${boxId}_out`).innerHTML = `<div class="empty"><b>計算できませんでした</b>${e.message}</div>`; }
+    };
+    let lastCsv = null;
+    $(`${boxId}_bgo`).onclick = async () => {
+      const txt = $(`${boxId}_batch`).value.trim();
+      if (!txt) { alert('まとめて予測したい行を貼り付けてください。'); return; }
+      const rows = txt.split(/\r?\n/).filter(l => l.trim()).map(l => l.split(/[,\t;\s]+/).filter(x => x !== '').map(Number));
+      const bad = rows.findIndex(r => r.length !== inputNames.length || r.some(v => !isFinite(v)));
+      if (bad >= 0) { alert(`${bad + 1} 行目の列数か数値が正しくありません（${inputNames.length} 列必要です）。`); return; }
+      $(`${boxId}_bout`).innerHTML = '<div class="empty">計算中…</div>';
+      try {
+        const r = await handlers.batch(rows);
+        const flags = rows.map(v => outOfRange(v).length);
+        const body = r.body.map((row, i) => row.concat(flags[i] ? td('<b style="color:#fca636">範囲外</b>') : td('—')));
+        $(`${boxId}_bout`).innerHTML = tableHTML(r.head.concat('外挿判定'), body) +
+          `<p class="note">${rows.length} 件を予測しました。${flags.filter(Boolean).length ? `<b style="color:#fca636">うち ${flags.filter(Boolean).length} 件が学習データの範囲外です。</b>` : ''}${r.note || ''}</p>`;
+        lastCsv = r.csv;
+        $(`${boxId}_dl`).disabled = false;
+      } catch (e) { $(`${boxId}_bout`).innerHTML = `<div class="empty"><b>計算できませんでした</b>${e.message}</div>`; }
+    };
+    $(`${boxId}_dl`).onclick = () => {
+      if (!lastCsv) return;
+      const blob = new Blob(['\ufeff' + lastCsv], { type: 'text/csv;charset=utf-8' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `statlab_predictions_${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    };
+  }
+  const bigCard = (label, value, sub) =>
+    `<div class="result" style="margin-bottom:12px"><div class="tag">${label}</div><h4 style="margin:6px 0 4px">${value}</h4>${sub ? `<div class="why" style="margin:0">${sub}</div>` : ''}</div>`;
+  const csvOf = (head, body) => [head.join(',')].concat(body.map(r => r.join(','))).join('\n');
+
   /* ============================================================
      回帰分析
      ============================================================ */
@@ -1079,20 +1158,38 @@
       td(i === 0 ? '—' : fmt(m.vif[i - 1], 3), m.vif[i - 1] > 10 ? 'sig' : '')])) + '</div>'
       + `<div class="formula">${yN}${tr !== 'none' ? `（${tr === 'log' ? '対数' : '平方根'}変換後）` : ''} = ${m.coefs.map((c, i) => i === 0 ? fmt(c.estimate, 4) : `${c.estimate >= 0 ? ' + ' : ' − '}${fmt(Math.abs(c.estimate), 4)} × ${c.name}`).join('')}</div>`;
 
-    // 予測
-    const pv = $('g_pred').value.trim();
-    if (pv && cols.length >= 1) {
-      const vals = pv.split(/[,\s]+/).map(Number).filter(v => isFinite(v));
-      if (vals.length) {
-        const rows = vals.map(v => {
-          const row = names.map((n, i) => i === 0 ? v : (n.includes('^') ? Math.pow(v, +n.split('^')[1]) : v));
-          const pr = m.predict(row);
-          return [td(fmt(v)), td(fmt(pr.fit)), td(`[${fmt(pr.ciLo)}, ${fmt(pr.ciHi)}]`), td(`[${fmt(pr.piLo)}, ${fmt(pr.piHi)}]`)];
+    // 新しいデータでの予測パネル
+    const inv = tr === 'log' ? (v => Math.exp(v)) : tr === 'sqrt' ? (v => v * v) : (v => v);
+    const expand = vals => (xs.length === 1 && poly > 1)
+      ? names.map(n => n.includes('^') ? Math.pow(vals[0], +n.split('^')[1]) : vals[0])
+      : vals;
+    predictPanel('g_predict', xs, {
+      hint: `学習した回帰式に条件を入れると、${yN} の予測値を返します。${tr !== 'none' ? '（目的変数を変換しているため、元の単位に戻して表示します）' : ''}`,
+      single: v => {
+        const pr = m.predict(expand(v));
+        const neg = (inv(pr.fit) < 0 && Math.min(...y) >= 0)
+          ? `<div class="warnbox" style="margin-bottom:12px"><b>ありえない予測が出ています</b>：目的変数は学習データではすべて 0 以上なのに、予測値が負になりました。線形モデルが直線を範囲外まで延長した結果です。この条件では線形回帰は使えません。決定木や多層パーセプトロン、あるいは目的変数の対数変換を検討してください。</div>` : '';
+        return neg + bigCard(`${yN} の予測値`, fmt(inv(pr.fit), 2),
+          `この条件の<b>母平均</b>の 95% 信頼区間：[${fmt(inv(pr.ciLo), 2)}, ${fmt(inv(pr.ciHi), 2)}]<br>` +
+          `<b>次の 1 件</b>の 95% 予測区間：[${fmt(inv(pr.piLo), 2)}, ${fmt(inv(pr.piHi), 2)}]`)
+          + `<div class="advice"><div class="adv key"><div class="t"><span class="tag">結論</span>2 つの区間の使い分け</div><div class="b">` +
+          `<b>信頼区間</b>は「同じ条件の物件を無数に集めたときの平均」の範囲、<b>予測区間</b>は「いま目の前にある 1 件」の範囲です。個別の売買や採否を判断するときに使うのは<b>予測区間</b>のほうです。予測区間は必ず広くなります。` +
+          `</div></div><div class="adv warn"><div class="t"><span class="tag">注意</span>外挿はしない</div><div class="b">` +
+          `学習データにない範囲の値（極端に広い面積、極端な築年数など）を入れると、モデルは根拠なく直線を延長します。入力値が元データの範囲に収まっているか確認してください。` +
+          `</div></div></div>`;
+      },
+      batch: rows => {
+        const body = rows.map((r, i) => {
+          const pr = m.predict(expand(r));
+          return [td(i + 1)].concat(r.map(v => td(fmt(v, 2))),
+            td(`<b style="color:var(--v5)">${fmt(inv(pr.fit), 2)}</b>`),
+            td(`${fmt(inv(pr.piLo), 2)} 〜 ${fmt(inv(pr.piHi), 2)}`));
         });
-        $('g_out').innerHTML += '<div style="margin-top:14px">' + tableHTML([`${xs[0]}`, '予測値', '平均の信頼区間', '個別値の予測区間'], rows) + '</div>'
-          + '<p class="note">信頼区間は「その x での母平均」の区間、予測区間は「次の 1 個の観測値」の区間です。後者は必ず広くなります。多変量モデルでは 1 列目以外は同じ値を代入しています。</p>';
+        const csv = csvOf(['#'].concat(xs, ['予測値', '予測区間下限', '予測区間上限']),
+          rows.map((r, i) => { const pr = m.predict(expand(r)); return [i + 1].concat(r, [inv(pr.fit).toFixed(3), inv(pr.piLo).toFixed(3), inv(pr.piHi).toFixed(3)]); }));
+        return { head: ['#'].concat(xs, ['予測値', '95% 予測区間']), body, csv, note: '予測区間つきで書き出せます。' };
       }
-    }
+    });
     // 診断図
     plot('g_p1', [
       { type: 'scatter', mode: 'markers', x: m.fitted, y: m.resid, marker: { color: m.cook, colorscale: 'Viridis', size: 8, opacity: .82, colorbar: { title: 'Cook 距離', thickness: 10 } }, name: '残差' },
@@ -1159,6 +1256,24 @@
       { type: 'scatter', mode: 'markers', x: y, y: m.fitted, marker: { color: '#2a788e', size: 7, opacity: .8 }, name: '観測 vs 予測' },
       { type: 'scatter', mode: 'lines', x: [0, Math.max(...y)], y: [0, Math.max(...y)], line: { color: '#fde725', dash: 'dash' }, name: '完全一致' }
     ], { title: '観測値 vs 予測平均', xaxis: { title: '観測値' }, yaxis: { title: '予測平均' } });
+    predictPanel('g_predict', names, {
+      hint: `条件を入れると、${yN} の<b>期待件数</b>を返します。`,
+      single: v => {
+        const pr = m.predict(v);
+        return bigCard(`${yN} の期待件数`, fmt(pr.fit, 3),
+          `95% 信頼区間：[${fmt(pr.lo, 3)}, ${fmt(pr.hi, 3)}]<br>この条件で観測が 1 単位あたり平均 ${fmt(pr.fit, 3)} 件起こる、という意味です。`)
+          + `<div class="advice"><div class="adv key"><div class="t"><span class="tag">結論</span>件数は「平均」であって「必ずその数」ではない</div><div class="b">` +
+          `期待件数が ${fmt(pr.fit, 2)} でも、実際にはポアソン分布に従ってばらつきます。0 件のことも、その 2 倍のこともあります。在庫や人員を決めるときは、期待値ではなく<b>上振れした場合</b>（例：95 パーセント点）で備えてください。「確率分布ラボ」でポアソン分布に ${fmt(pr.fit, 2)} を入れると、その分布が確認できます。` +
+          `</div></div></div>`;
+      },
+      batch: rows => {
+        const body = rows.map((r, i) => [td(i + 1)].concat(r.map(v => td(fmt(v, 2))),
+          td(`<b style="color:var(--v5)">${fmt(m.predict(r).fit, 3)}</b>`), td(`${fmt(m.predict(r).lo, 3)} 〜 ${fmt(m.predict(r).hi, 3)}`)));
+        const csv = csvOf(['#'].concat(names, ['期待件数', 'CI下限', 'CI上限']),
+          rows.map((r, i) => { const pr = m.predict(r); return [i + 1].concat(r, [pr.fit.toFixed(4), pr.lo.toFixed(4), pr.hi.toFixed(4)]); }));
+        return { head: ['#'].concat(names, ['期待件数', '95% 信頼区間']), body, csv };
+      }
+    });
     renderAdvice('g_advice', [
       { level: 'key', title: 'モデル全体の有意性', body: `尤度比検定 χ²(${m.lrDf}) = ${fmt(m.lrChi2, 4)}、p = ${fmt(m.lrP, 5)}。${m.lrP < .05 ? '説明変数なしのモデルより有意に当てはまりが良いです。' : '説明変数なしのモデルと比べて改善していません。'} McFadden R² = ${fmt(m.mcfadden, 4)}、AIC = ${fmt(m.aic, 2)}。` },
       { level: 'key', title: '発生率比（IRR）の読み方', body: m.coefs.slice(1).map(c => `<b>${c.name}</b>：IRR = ${fmt(c.irr, 4)}（95%CI ${fmt(c.irrLo, 3)}–${fmt(c.irrHi, 3)}、p = ${fmt(c.p, 5)}）→ ${c.name} が 1 単位増えると、他を一定として発生件数の期待値が <b>${fmt(c.irr, 3)} 倍</b>（${c.irr > 1 ? ((c.irr - 1) * 100).toFixed(1) + '% 増' : ((1 - c.irr) * 100).toFixed(1) + '% 減'}）。`).join('<br>') + '<br>IRR の信頼区間が 1 をまたぐ変数は有意ではありません。' },
@@ -1214,6 +1329,39 @@
       { type: 'violin', x: y.map(v => v ? `陽性（${pos}）` : '陰性'), y: m.prob, points: 'all', jitter: .3, pointpos: 0, box: { visible: true }, line: { color: '#2a788e' }, fillcolor: '#2a788e44', marker: { size: 4, opacity: .5 }, name: '予測確率' }
     ], { title: '実際のクラス別の予測確率', yaxis: { title: '予測確率', range: [0, 1] } });
     renderLogitThreshold();
+    predictPanel('l_predict', xs, {
+      hint: `条件を入れると、「${pos}」になる確率を返します。判定は上のスライダーの閾値を使います。`,
+      single: v => {
+        const r = m.predictCI(v);
+        const thr = +$('l_thr').value;
+        const judge = r.prob >= thr;
+        const con = r.contrib.slice(1).sort((a, b) => Math.abs(b.term) - Math.abs(a.term));
+        return bigCard(`「${pos}」になる確率`, (r.prob * 100).toFixed(1) + ' %',
+          `95% 信頼区間：${(r.lo * 100).toFixed(1)} 〜 ${(r.hi * 100).toFixed(1)} %　／　オッズ ${fmt(r.odds, 3)}<br>` +
+          `現在の閾値 ${thr.toFixed(2)} では <b style="color:${judge ? '#fde725' : '#7ad151'}">「${judge ? pos : 'それ以外'}」と判定</b>されます。`)
+          + '<div style="margin-top:4px">' + tableHTML(['寄与の大きい順', '入力値', '係数', '対数オッズへの寄与'],
+            con.map(c => [td(c.name), td(fmt(c.value, 3)), td(fmt(c.coef, 4)),
+              td(`<b style="color:${c.term >= 0 ? '#fca636' : '#7ad151'}">${c.term >= 0 ? '+' : ''}${fmt(c.term, 4)}</b>`)])) + '</div>'
+          + `<div class="advice" style="margin-top:12px"><div class="adv key"><div class="t"><span class="tag">結論</span>この表の読み方</div><div class="b">` +
+          `寄与がプラスの変数はこの 1 件を「${pos}」の方向へ、マイナスの変数は反対方向へ押しています。合計に切片 ${fmt(r.contrib[0].term, 3)} を足したものが対数オッズ ${fmt(r.logit, 3)} で、それをロジスティック関数に通した値が上の確率です。<b>どの変数がこの判断を決めたか</b>が、ここで分かります。` +
+          `</div></div><div class="adv warn"><div class="t"><span class="tag">注意</span>閾値は目的で決める</div><div class="b">` +
+          `0.5 は既定値にすぎません。見逃しのコストが高いなら閾値を下げ、誤検知のコストが高いなら上げてください。混同行列の数字がその場で変わるので、どちらの損失が小さいかを見て決めます。` +
+          `</div></div></div>`;
+      },
+      batch: rows => {
+        const thr = +$('l_thr').value;
+        const body = rows.map((r, i) => {
+          const q = m.predictCI(r);
+          return [td(i + 1)].concat(r.map(v => td(fmt(v, 2))),
+            td(`<b style="color:var(--v5)">${(q.prob * 100).toFixed(1)}%</b>`),
+            td(`${(q.lo * 100).toFixed(1)} 〜 ${(q.hi * 100).toFixed(1)}%`),
+            td(q.prob >= thr ? `<b class="sig">${pos}</b>` : 'それ以外'));
+        });
+        const csv = csvOf(['#'].concat(xs, ['確率', 'CI下限', 'CI上限', `判定(閾値${thr})`]),
+          rows.map((r, i) => { const q = m.predictCI(r); return [i + 1].concat(r, [q.prob.toFixed(5), q.lo.toFixed(5), q.hi.toFixed(5), q.prob >= thr ? pos : 'それ以外']); }));
+        return { head: ['#'].concat(xs, ['確率', '95% 信頼区間', '判定']), body, csv, note: `確率の高い順に並べ替えれば、そのまま「優先的に手を打つリスト」になります。` };
+      }
+    });
   });
   function renderLogitThreshold() {
     const { m, y, roc } = LAST_LOGIT;
@@ -1233,7 +1381,7 @@
   /* ============================================================
      決定木
      ============================================================ */
-  let LAST_TREE = null;
+  let LAST_TREE = null, LAST_MLP = null;
   $('dt_run').addEventListener('click', () => {
     if (!need()) return;
     const yn = $('dt_y').value, task = $('dt_task').value;
@@ -1257,6 +1405,45 @@
     plot('dt_imp', [{ type: 'bar', orientation: 'h', x: ord.map(o => o.v), y: ord.map(o => o.n), marker: { color: ord.map((_, i) => VIRIDIS[i % 8]) } }],
       { title: '変数重要度', xaxis: { title: '不純度減少の割合', tickformat: '.0%' } });
     drawBoundary();
+    predictPanel('dt_predict', xs, {
+      hint: '条件を入れると、木のどの分岐をたどって予測にたどり着いたかを表示します。決定木の最大の強みは、この「経路」がそのまま説明になることです。',
+      single: v => {
+        const pth = S.treePath(t.tree, v);
+        const leaf = pth.leaf;
+        const val = task === 'classification' ? leaf.value : fmt(leaf.value, 3);
+        const steps = pth.steps.map((st, i) =>
+          `<div style="padding:7px 0;border-bottom:1px solid rgba(126,150,200,.1)">
+             <span style="font-family:var(--mono);color:var(--ink-dim)">${i + 1}.</span>
+             <b>${st.name}</b> = ${fmt(st.value, 3)} は ${fmt(st.threshold, 3)} 以下か？ →
+             <b style="color:${st.go ? '#7ad151' : '#fca636'}">${st.go ? 'はい（左へ）' : 'いいえ（右へ）'}</b>
+             <span style="color:var(--ink-dim);font-size:11px">（このノードの学習データ ${st.n} 件）</span>
+           </div>`).join('');
+        let probHtml = '';
+        if (task === 'classification' && leaf.prob) {
+          probHtml = '<div style="margin-top:12px">' + tableHTML(['クラス', 'この葉での割合', '学習データ件数'],
+            Object.entries(leaf.prob).sort((a, b) => b[1] - a[1]).map(([k, p]) =>
+              [td(k), td((p * 100).toFixed(1) + '%'), td(leaf.counts[k])])) + '</div>';
+        }
+        return bigCard('予測', val, `深さ ${pth.steps.length} の分岐をたどり、学習データ ${leaf.n} 件が集まった葉に到達しました。`)
+          + `<div style="margin-top:6px"><div class="crumb" style="margin-bottom:6px">たどった経路</div>${steps}</div>` + probHtml
+          + `<div class="advice" style="margin-top:12px"><div class="adv key"><div class="t"><span class="tag">結論</span>説明できる予測</div><div class="b">` +
+          `この経路をそのまま日本語にすれば、決裁資料に書ける根拠になります。「${pth.steps.map(st => `${st.name}が${fmt(st.threshold, 2)}${st.go ? '以下' : '超'}`).join('、')}だから ${val}」という具合です。` +
+          `</div></div><div class="adv warn"><div class="t"><span class="tag">注意</span>葉の件数を見る</div><div class="b">` +
+          `到達した葉の学習データが ${leaf.n} 件です。${leaf.n < 20 ? 'これは少なく、たまたまその数件の特徴を覚えただけの可能性があります。木を浅くするか、ランダムフォレストの結果と比べてください。' : '十分な件数があり、この予測は安定していると考えられます。'}` +
+          `</div></div></div>`;
+      },
+      batch: rows => {
+        const body = rows.map((r, i) => {
+          const pth = S.treePath(t.tree, r);
+          return [td(i + 1)].concat(r.map(v => td(fmt(v, 2))),
+            td(`<b style="color:var(--v5)">${task === 'classification' ? pth.leaf.value : fmt(pth.leaf.value, 3)}</b>`),
+            td(pth.leaf.n), td(pth.steps.map(st => `${st.name}${st.go ? '≤' : '>'}${fmt(st.threshold, 2)}`).join(' & ')));
+        });
+        const csv = csvOf(['#'].concat(xs, ['予測', '葉の件数', '条件']),
+          rows.map((r, i) => { const pth = S.treePath(t.tree, r); return [i + 1].concat(r, [pth.leaf.value, pth.leaf.n, '"' + pth.steps.map(st => `${st.name}${st.go ? '<=' : '>'}${fmt(st.threshold, 2)}`).join(' & ') + '"']); }));
+        return { head: ['#'].concat(xs, ['予測', '葉の件数', '適用されたルール']), body, csv };
+      }
+    });
     renderAdvice('dt_advice', AD.tree(t));
   });
   $('rf_run').addEventListener('click', () => {
@@ -1574,6 +1761,8 @@
     const hidden = $('n_hidden').value.split(/[,\s]+/).map(Number).filter(v => v >= 1);
     if (!hidden.length) { alert('隠れ層の構成を入力してください（例：32, 16）。'); return; }
     const btn = $('n_run'); btn.disabled = true;
+    if (LAST_MLP && LAST_MLP.dispose) LAST_MLP.dispose();   // 前回のネットワークを解放
+    LAST_MLP = null;
     $('n_status').textContent = '学習中…'; $('n_status').className = 'pill live';
     const cfg = {
       hidden, activation: $('n_act').value, epochs: +$('n_ep').value, lr: +$('n_lr').value,
@@ -1609,6 +1798,44 @@
           { title: '混同行列' });
       }
       renderAdvice('n_advice', AD.mlp(r));
+      LAST_MLP = r;
+      predictPanel('n_predict', xs, {
+        hint: '学習したネットワークはページを開いている間ずっと保持されます。条件を入れれば何度でも予測できます。',
+        single: async v => {
+          const out = (await r.predictRows([v]))[0];
+          if (task === 'regression') {
+            const err = r.valRmse;
+            return bigCard(`${yn} の予測値`, fmt(out.value, 3),
+              `検証データでの平均的な誤差は ±${fmt(err, 2)} 程度です。目安として <b>${fmt(out.value - 1.96 * err, 2)} 〜 ${fmt(out.value + 1.96 * err, 2)}</b> の幅で考えてください。`)
+              + `<div class="advice"><div class="adv warn"><div class="t"><span class="tag">注意</span>この幅は簡易的な目安</div><div class="b">` +
+              `ニューラルネットは回帰と違って理論的な予測区間を持ちません。ここでは検証データの誤差の大きさから幅を当てはめているだけです。厳密な区間が必要なら、重回帰の予測区間を併用してください。` +
+              `</div></div><div class="adv warn"><div class="t"><span class="tag">注意</span>外挿に特に弱い</div><div class="b">` +
+              `学習データの範囲外の値を入れると、ニューラルネットは回帰以上に予測不能な値を返します。入力が元データの範囲内かを必ず確認してください。` +
+              `</div></div></div>`;
+          }
+          const rows = out.classes.map((c, i) => [td(c), td((out.probs[i] * 100).toFixed(1) + '%'),
+            td(`<div style="background:linear-gradient(90deg,var(--v3) ${out.probs[i] * 100}%,transparent ${out.probs[i] * 100}%);height:10px;border-radius:5px"></div>`)]);
+          return bigCard('予測されたクラス', out.label, `最も確率が高いクラスです。確率の内訳は下のとおりです。`)
+            + tableHTML(['クラス', '確率', ''], rows)
+            + `<div class="advice" style="margin-top:12px"><div class="adv key"><div class="t"><span class="tag">結論</span>確率で受け取る</div><div class="b">` +
+            `${(Math.max(...out.probs) * 100).toFixed(1)}% という数字は「この予測をどれだけ信じてよいか」です。40% と 95% では、同じ「予測クラス」でも next action が変わります。低いときは追加情報を取りにいくのが正解です。` +
+            `</div></div></div>`;
+        },
+        batch: async rows => {
+          const outs = await r.predictRows(rows);
+          if (task === 'regression') {
+            const body = rows.map((rr, i) => [td(i + 1)].concat(rr.map(v => td(fmt(v, 2))), td(`<b style="color:var(--v5)">${fmt(outs[i].value, 3)}</b>`)));
+            return { head: ['#'].concat(xs, ['予測値']), body, csv: csvOf(['#'].concat(xs, ['予測値']), rows.map((rr, i) => [i + 1].concat(rr, [outs[i].value.toFixed(4)]))) };
+          }
+          const body = rows.map((rr, i) => [td(i + 1)].concat(rr.map(v => td(fmt(v, 2))),
+            td(`<b style="color:var(--v5)">${outs[i].label}</b>`), td((Math.max(...outs[i].probs) * 100).toFixed(1) + '%')));
+          return {
+            head: ['#'].concat(xs, ['予測クラス', '最大確率']), body,
+            csv: csvOf(['#'].concat(xs, ['予測クラス'], outs[0].classes.map(c => 'P(' + c + ')')),
+              rows.map((rr, i) => [i + 1].concat(rr, [outs[i].label], outs[i].probs.map(p => p.toFixed(5)))))
+          };
+        }
+      });
     } catch (e) {
       $('n_status').textContent = 'エラー'; $('n_status').className = 'pill';
       alert('学習に失敗しました：' + e.message);
