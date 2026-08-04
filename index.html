@@ -9,16 +9,6 @@
 <meta name="theme-color" content="#070a14">
 <link rel="canonical" href="https://ck121212195.github.io/STATLAB/">
 
-  <!-- Google tag (gtag.js) -->
-<script async src="https://www.googletagmanager.com/gtag/js?id=G-VL4D1215KN"></script>
-<script>
-  window.dataLayer = window.dataLayer || [];
-  function gtag(){dataLayer.push(arguments);}
-  gtag('js', new Date());
-
-  gtag('config', 'G-VL4D1215KN');
-</script>
-
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="STATLAB 統計分析ダッシュボード">
 <meta property="og:title" content="STATLAB｜ブラウザだけで動く統計分析ダッシュボード">
@@ -109,11 +99,20 @@
             <div class="sm">またはクリックして選択（.csv .tsv .txt）</div>
             <input type="file" id="file" accept=".csv,.tsv,.txt,text/csv" hidden>
           </div>
+          <p class="hint" style="margin-top:16px">データが手元になければ、以下から選んでください。すべて実在データではなく、現実の構造を再現して生成した練習用データです。</p>
           <div class="btnrow">
-            <button class="btn ghost" data-sample="iris">サンプル：アヤメ</button>
-            <button class="btn ghost" data-sample="sales">サンプル：売上時系列</button>
-            <button class="btn ghost" data-sample="clinic">サンプル：臨床（2値）</button>
-            <button class="btn ghost" data-sample="stock">サンプル：株価</button>
+            <button class="btn ghost" data-sample="mansion">🏠 中古マンション成約</button>
+            <button class="btn ghost" data-sample="churn">📺 サブスク解約</button>
+            <button class="btn ghost" data-sample="power">⚡ 家庭の電気使用量</button>
+            <button class="btn ghost" data-sample="stock">📈 株価・市場・為替</button>
+            <button class="btn ghost" data-sample="abtest">🧪 WebサイトA/Bテスト</button>
+          </div>
+          <div class="note" style="font-size:11.5px;line-height:1.8">
+            <b style="color:var(--v4)">中古マンション</b>（1,200件）… 重回帰・決定木・多層パーセプトロンで価格を予測する<br>
+            <b style="color:var(--v4)">サブスク解約</b>（2,000件）… ロジスティック回帰・ROC 曲線で「辞めそうな人」を見つける<br>
+            <b style="color:var(--v4)">家庭の電気使用量</b>（84か月）… 季節分解・Holt–Winters で来年の電気代を予測する<br>
+            <b style="color:var(--v4)">株価・市場・為替</b>（600営業日）… リスク指標・相関・ベータ推定・テクニカル指標<br>
+            <b style="color:var(--v4)">A/Bテスト</b>（1,500件）… 母比率の差の検定・カイ二乗検定・分散分析で施策の効果を判定する
           </div>
         </div>
 
