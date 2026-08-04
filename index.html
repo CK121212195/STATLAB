@@ -8,15 +8,6 @@
 <meta name="author" content="Mini statistic">
 <meta name="theme-color" content="#070a14">
 <link rel="canonical" href="https://ck121212195.github.io/STATLAB/">
-<!-- Google tag (gtag.js) -->
-<script async src="https://www.googletagmanager.com/gtag/js?id=G-VL4D1215KN"></script>
-<script>
-  window.dataLayer = window.dataLayer || [];
-  function gtag(){dataLayer.push(arguments);}
-  gtag('js', new Date());
-
-  gtag('config', 'G-VL4D1215KN');
-</script>
 
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="STATLAB 統計分析ダッシュボード">
@@ -417,7 +408,6 @@
         <div class="grid g3">
           <div class="field"><label>信頼水準</label><select id="g_conf"><option value="0.95">95%</option><option value="0.99">99%</option><option value="0.9">90%</option></select></div>
           <div class="field"><label>モデル</label><select id="g_model"><option value="ols">線形回帰（最小二乗法）</option><option value="poisson">ポアソン回帰（対数リンク・計数データ）</option></select></div>
-          <div class="field"><label>予測したい x の値（カンマ区切り）</label><input type="text" id="g_pred" placeholder="例：3.5, 12"></div>
         </div>
         <div class="grid g3">
           <div class="field"><label>目的変数の変換（線形回帰のみ）</label><select id="g_tr"><option value="none">なし</option><option value="log">自然対数</option><option value="sqrt">平方根</option></select></div>
@@ -426,6 +416,7 @@
       </div>
       <div class="panel"><h3>推定結果</h3><div id="g_out"></div></div>
       <div class="panel"><h3>回帰診断</h3><div class="grid g2"><div id="g_p1" class="plot"></div><div id="g_p2" class="plot"></div><div id="g_p3" class="plot"></div><div id="g_p4" class="plot"></div></div></div>
+      <div class="panel"><h3>このモデルで予測する</h3><div id="g_predict"><div class="empty"><b>先に回帰を実行してください</b>推定が終わると、新しい条件を入力して予測できるようになります。</div></div></div>
       <div class="panel"><h3>結果の読み方</h3><div id="g_advice" class="advice"></div></div>
     </section>
 
@@ -447,6 +438,7 @@
       <div class="panel"><h3>推定結果</h3><div id="l_out"></div></div>
       <div class="panel"><h3>ROC 曲線と予測確率</h3><div class="grid g2"><div id="l_p1" class="plot"></div><div id="l_p2" class="plot"></div></div></div>
       <div class="panel"><h3>混同行列</h3><div id="l_cm"></div></div>
+      <div class="panel"><h3>このモデルで予測する</h3><div id="l_predict"><div class="empty"><b>先に回帰を実行してください</b>推定が終わると、新しい条件の発生確率を計算できるようになります。</div></div></div>
       <div class="panel"><h3>結果の読み方</h3><div id="l_advice" class="advice"></div></div>
     </section>
 
@@ -470,6 +462,7 @@
       <div class="panel"><h3>精度と変数重要度</h3><div class="grid g2"><div id="dt_out"></div><div id="dt_imp" class="plot"></div></div></div>
       <div class="panel"><h3>決定境界（説明変数を2つ選んだ場合）</h3><div id="dt_bound" class="plot"></div></div>
       <div class="panel"><h3>並べ替え重要度と部分依存プロット（PDP）</h3><p class="hint">重要度は「どれだけ効いているか」、部分依存は「どちら向きに効いているか」を示します。</p><div class="grid g2"><div id="dt_perm" class="plot"></div><div id="dt_pdp" class="plot"></div></div></div>
+      <div class="panel"><h3>このモデルで予測する</h3><div id="dt_predict"><div class="empty"><b>先に決定木を作ってください</b>木ができると、新しい条件がどの分岐をたどるかまで表示されます。</div></div></div>
       <div class="panel"><h3>結果の読み方</h3><div id="dt_advice" class="advice"></div></div>
     </section>
 
@@ -557,6 +550,7 @@
       </div>
       <div class="panel"><h3>学習曲線</h3><div id="n_curve" class="plot"></div></div>
       <div class="panel"><h3>予測性能</h3><div class="grid g2"><div id="n_out"></div><div id="n_pred" class="plot"></div></div></div>
+      <div class="panel"><h3>このモデルで予測する</h3><div id="n_predict"><div class="empty"><b>先に学習を実行してください</b>学習したネットワークはページを離れるまで保持され、何度でも予測に使えます。</div></div></div>
       <div class="panel"><h3>結果の読み方</h3><div id="n_advice" class="advice"></div></div>
     </section>
 
